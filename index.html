@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OrganizerPlus</title>
+<title>The Board</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -50,15 +50,15 @@
   #canvas { position: fixed; top: 52px; left: 0; right: 0; bottom: 0; overflow: auto; display: none; }
   #canvas-inner { position: relative; width: 3000px; height: 2000px; }
 
-  /* URGENT BAR */
-  .urgent-bar { position: fixed; top: 52px; left: 0; right: 0; z-index: 200; background: var(--red-bg); border-bottom: 1px solid #f5c5c0; padding: 7px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  /* URGENT BAR — sits below topbar, overlay views push down to avoid it */
+  .urgent-bar { position: fixed; top: 52px; left: 0; right: 0; z-index: 250; background: var(--red-bg); border-bottom: 1px solid #f5c5c0; padding: 7px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .urgent-bar-label { font-size: 11px; font-weight: 500; color: var(--red); text-transform: uppercase; letter-spacing: 0.06em; }
   .urgent-chip { font-size: 11px; padding: 3px 8px; border-radius: 5px; background: #fff; border: 1px solid #f5c5c0; color: var(--red); cursor: pointer; }
 
   /* GROUP */
-  .class-group { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; max-height: 600px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .class-group { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; box-shadow: 0 2px 12px rgba(0,0,0,0.06); min-height: 80px; }
   .class-group.dragging { box-shadow: 0 12px 40px rgba(0,0,0,0.18); opacity: 0.95; z-index: 500; }
-  .class-group.collapsed { max-height: none; }
+  .class-group.collapsed { height: auto !important; }
   .group-header { display: flex; align-items: center; gap: 8px; padding: 11px 13px 9px; border-bottom: 1px solid var(--border); cursor: grab; user-select: none; border-radius: var(--radius) var(--radius) 0 0; }
   .group-header:active { cursor: grabbing; }
   .group-color-bar { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -71,12 +71,17 @@
   .group-tasks::-webkit-scrollbar { width: 4px; }
   .group-tasks::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   .collapsed .group-tasks, .collapsed .group-footer { display: none; }
-  .group-footer { padding: 8px; border-top: 1px solid var(--border); }
+  .group-footer { padding: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
   .add-task-btn { width: 100%; padding: 7px; border: 1.5px dashed var(--border); border-radius: 7px; background: none; color: var(--text3); font-size: 12px; font-family: var(--font); cursor: pointer; transition: all 0.15s; }
   .add-task-btn:hover { border-color: var(--text3); color: var(--text2); background: var(--surface2); }
-  .resize-handle { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize; display: flex; align-items: flex-end; justify-content: flex-end; padding: 3px; }
-  .resize-handle::after { content: ''; width: 6px; height: 6px; border-right: 2px solid var(--border); border-bottom: 2px solid var(--border); border-radius: 1px; }
-  .collapsed .resize-handle { display: none; }
+  /* SE resize handle (width+height) */
+  .resize-handle-se { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize; display: flex; align-items: flex-end; justify-content: flex-end; padding: 3px; z-index: 10; }
+  .resize-handle-se::after { content: ''; width: 6px; height: 6px; border-right: 2px solid var(--border); border-bottom: 2px solid var(--border); border-radius: 1px; }
+  /* S resize handle (height only) */
+  .resize-handle-s { position: absolute; left: 20%; right: 20%; bottom: 0; height: 6px; cursor: s-resize; z-index: 9; }
+  .resize-handle-s::after { content: ''; position: absolute; left: 50%; transform: translateX(-50%); bottom: 2px; width: 30px; height: 3px; background: var(--border); border-radius: 2px; }
+  .resize-handle-s:hover::after { background: var(--text3); }
+  .collapsed .resize-handle-se, .collapsed .resize-handle-s { display: none; }
 
   /* TASK CARD */
   .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin-bottom: 6px; cursor: default; transition: box-shadow 0.12s; position: relative; }
@@ -97,7 +102,7 @@
   .task-card:hover .task-actions { display: flex; }
   .task-action-btn { width: 22px; height: 22px; border-radius: 5px; border: none; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.1); color: var(--text2); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; }
 
-  /* OVERLAY VIEWS */
+  /* OVERLAY VIEWS — top is set dynamically by JS based on urgent bar */
   .overlay-view { display: none; position: fixed; top: 52px; left: 0; right: 0; bottom: 0; overflow-y: auto; padding: 20px; background: var(--bg); z-index: 100; }
   .cal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
   .cal-title { font-size: 18px; font-weight: 500; }
@@ -154,12 +159,14 @@
   .btn.primary { background: var(--text); color: #fff; border-color: var(--text); }
   .btn.primary:hover { opacity: 0.85; }
   .btn.danger { background: var(--red-bg); color: var(--red); border-color: #f5c5c0; }
-  .kind-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .kind-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .kind-pill { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border); background: none; font-size: 12px; font-weight: 500; cursor: pointer; font-family: var(--font); color: var(--text2); transition: all 0.12s; }
   .kind-pill.sel { background: var(--text); color: #fff; border-color: var(--text); }
-  .type-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .type-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .type-pill { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border); background: none; font-size: 12px; cursor: pointer; font-family: var(--font); color: var(--text2); transition: all 0.12s; }
   .type-pill.sel { background: var(--surface2); border-color: var(--text); color: var(--text); }
+  .custom-type-input { margin-top: 6px; display: none; }
+  .custom-type-input.show { display: block; }
   .add-group-tile { position: absolute; background: none; border: 2px dashed var(--border); border-radius: var(--radius); width: 200px; height: 80px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text3); font-size: 13px; font-family: var(--font); transition: all 0.15s; }
   .add-group-tile:hover { border-color: var(--text3); color: var(--text2); background: var(--surface); }
   .color-swatches { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -176,7 +183,7 @@
 <div id="auth-screen">
   <div class="auth-card">
     <div style="font-size:32px;margin-bottom:12px;">📋</div>
-    <div class="auth-title">OrganizerPlus</div>
+    <div class="auth-title">The Board</div>
     <div class="auth-sub">Sign in to sync your planner across all your devices.</div>
     <button class="google-btn" onclick="signInWithGoogle()">
       <svg class="google-icon" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
@@ -187,7 +194,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar" id="topbar" style="display:none;">
-  <span class="topbar-title">OrganizerPlus</span>
+  <span class="topbar-title">The Board</span>
   <div class="topbar-dot"></div>
   <div class="view-tabs">
     <button class="view-tab active" onclick="switchView('board')">Board</button>
@@ -247,7 +254,7 @@
       <div><label class="form-label">Category</label><select class="form-input" id="f-class"></select></div>
       <div><label class="form-label">Due Date</label><input class="form-input" type="date" id="f-date"></div>
     </div>
-    <div class="form-row"><label class="form-label">Type</label><div class="type-pills" id="type-pills-container"></div></div>
+    <div class="form-row"><label class="form-label">Type</label><div class="type-pills" id="type-pills-container"></div><div class="custom-type-input" id="custom-type-wrap"><input class="form-input" id="f-type-custom" placeholder="Type a custom task type..."></div></div>
     <div class="form-row">
       <label class="form-label">Priority</label>
       <div class="priority-btns">
@@ -288,6 +295,10 @@
         <button class="kind-pill" data-k="project" onclick="selKind(this)">🛠 Project</button>
         <button class="kind-pill" data-k="personal" onclick="selKind(this)">🧠 Personal</button>
         <button class="kind-pill" data-k="reminder" onclick="selKind(this)">🔔 Reminders</button>
+        <button class="kind-pill" data-k="custom" onclick="selKind(this)">✏️ Custom</button>
+      </div>
+      <div id="custom-kind-wrap" style="display:none;margin-top:6px;">
+        <input class="form-input" id="cat-kind-custom" placeholder="Type a kind name, e.g. Club, Job, Sport...">
       </div>
     </div>
     <div class="form-row">
@@ -478,23 +489,31 @@ function switchView(v) {
 }
 
 // ── BOARD ────────────────────────────────────────────────────────────────────
-function renderBoard() {
-  const state = getState();
-  if (!state.categories) return;
-  const inner = document.getElementById('canvas-inner');
-  inner.querySelectorAll('.class-group, .add-group-tile').forEach(el => el.remove());
-
+function updateUrgentBar(state) {
   const redTasks = (state.tasks||[]).filter(t => t.priority === 'red' && !t.done);
   const ub = document.getElementById('urgent-bar');
   if (redTasks.length) {
     ub.style.display = 'flex';
     document.getElementById('urgent-chips').innerHTML = redTasks.map(t =>
       `<span class="urgent-chip" onclick="openEditTask('${t.id}')">${t.title}</span>`).join(' ');
-    document.getElementById('canvas').style.top = '86px';
+    const ubH = ub.offsetHeight || 34;
+    const offset = (52 + ubH) + 'px';
+    document.getElementById('canvas').style.top = offset;
+    document.querySelectorAll('.overlay-view').forEach(v => v.style.top = offset);
   } else {
     ub.style.display = 'none';
     document.getElementById('canvas').style.top = '52px';
+    document.querySelectorAll('.overlay-view').forEach(v => v.style.top = '52px');
   }
+}
+
+function renderBoard() {
+  const state = getState();
+  if (!state.categories) return;
+  const inner = document.getElementById('canvas-inner');
+  inner.querySelectorAll('.class-group, .add-group-tile').forEach(el => el.remove());
+
+  updateUrgentBar(state);
 
   state.categories.forEach(cat => renderGroup(cat, inner, state));
 
@@ -509,8 +528,10 @@ function renderBoard() {
 function renderGroup(cat, container, state) {
   const tasks = (state.tasks||[]).filter(t => t.catId === cat.id);
   const el = document.createElement('div');
-  el.className = 'class-group' + ((state.collapsed||{})[cat.id] ? ' collapsed' : '');
+  const isCollapsed = (state.collapsed||{})[cat.id];
+  el.className = 'class-group' + (isCollapsed ? ' collapsed' : '');
   el.style.left = (cat.x||20)+'px'; el.style.top = (cat.y||20)+'px'; el.style.width = (cat.w||260)+'px';
+  if (!isCollapsed && cat.h) el.style.height = cat.h+'px';
   el.dataset.catId = cat.id;
 
   const sortedTasks = [...tasks].sort((a,b) => {
@@ -520,24 +541,27 @@ function renderGroup(cat, container, state) {
     return (a.dueDate||'') < (b.dueDate||'') ? -1 : 1;
   });
 
+  const kindLabel = cat.kindLabel || KIND_LABELS[cat.kind] || cat.kind || '';
   el.innerHTML = `
     <div class="group-header">
       <div class="group-color-bar" style="background:${cat.color}"></div>
       <span class="group-name">${cat.name}</span>
-      <span class="group-badge" style="background:${cat.color}18;color:${cat.color}">${KIND_LABELS[cat.kind]||cat.kind}</span>
+      <span class="group-badge" style="background:${cat.color}18;color:${cat.color}">${kindLabel}</span>
       <span class="group-count">${tasks.filter(t=>!t.done).length}</span>
       <button class="group-btn" onclick="openCategoryModal('${cat.id}')">✏️</button>
-      <button class="group-btn" onclick="toggleCollapse('${cat.id}',event)">${(state.collapsed||{})[cat.id]?'▶':'▼'}</button>
+      <button class="group-btn" onclick="toggleCollapse('${cat.id}',event)">${isCollapsed?'▶':'▼'}</button>
     </div>
     <div class="group-tasks" id="tasks-${cat.id}"></div>
     <div class="group-footer"><button class="add-task-btn" onclick="openAddTask('${cat.id}')">+ Add task</button></div>
-    <div class="resize-handle"></div>`;
+    <div class="resize-handle-s"></div>
+    <div class="resize-handle-se"></div>`;
 
   container.appendChild(el);
   const tasksEl = el.querySelector(`#tasks-${cat.id}`);
   sortedTasks.forEach(t => tasksEl.appendChild(makeTaskCard(t, cat)));
   initGroupDrag(el, el.querySelector('.group-header'), cat);
-  initGroupResize(el, el.querySelector('.resize-handle'), cat);
+  initGroupResizeSE(el, el.querySelector('.resize-handle-se'), cat);
+  initGroupResizeS(el, el.querySelector('.resize-handle-s'), cat);
 }
 
 function makeTaskCard(t, cat) {
@@ -556,7 +580,10 @@ function makeTaskCard(t, cat) {
       ${t.type?`<span class="task-type-badge" style="background:${cat?.color||'#888'}18;color:${cat?.color||'#888'}">${t.type}</span>`:''}
       ${t.notes?`<span class="task-date">📝</span>`:''}
     </div>
-    <div class="task-actions"><button class="task-action-btn" onclick="openEditTask('${t.id}')">✏️</button></div>`;
+    <div class="task-actions" style="display:none;gap:3px;">
+      <button class="task-action-btn" onclick="duplicateTask('${t.id}')" title="Duplicate">⧉</button>
+      <button class="task-action-btn" onclick="openEditTask('${t.id}')" title="Edit">✏️</button>
+    </div>`;
   return div;
 }
 
@@ -596,14 +623,41 @@ function initGroupDrag(el, handle, cat) {
   });
 }
 
-function initGroupResize(el, handle, cat) {
+function initGroupResizeSE(el, handle, cat) {
   handle.addEventListener('mousedown', e => {
     e.preventDefault(); e.stopPropagation();
-    const startX = e.clientX, startW = cat.w||260;
-    const onMove = ev => { cat.w = Math.max(200, Math.min(600, startW + ev.clientX - startX)); el.style.width = cat.w+'px'; };
+    const startX = e.clientX, startY = e.clientY;
+    const startW = cat.w||260, startH = cat.h || el.offsetHeight;
+    const onMove = ev => {
+      cat.w = Math.max(200, Math.min(700, startW + ev.clientX - startX));
+      cat.h = Math.max(120, startH + ev.clientY - startY);
+      el.style.width = cat.w+'px'; el.style.height = cat.h+'px';
+    };
     const onUp = () => { save(); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
     document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
   });
+}
+
+function initGroupResizeS(el, handle, cat) {
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const startY = e.clientY, startH = cat.h || el.offsetHeight;
+    const onMove = ev => {
+      cat.h = Math.max(120, startH + ev.clientY - startY);
+      el.style.height = cat.h+'px';
+    };
+    const onUp = () => { save(); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+  });
+}
+
+function duplicateTask(id) {
+  const state = getState();
+  const original = (state.tasks||[]).find(t=>t.id===id);
+  if (!original) return;
+  const copy = { ...original, id: Date.now().toString(), done: false, title: original.title + ' (copy)' };
+  state.tasks.push(copy);
+  save(); renderAll();
 }
 
 // ── TASK MODAL ───────────────────────────────────────────────────────────────
@@ -617,14 +671,37 @@ function getTypesForCat(catId) {
 
 function renderTypePills(types, selected) {
   const c = document.getElementById('type-pills-container');
+  const customWrap = document.getElementById('custom-type-wrap');
+  const customInput = document.getElementById('f-type-custom');
   c.innerHTML = '';
-  types.forEach(type => {
+  const isCustom = selected && !types.includes(selected);
+  [...types, 'Custom…'].forEach(type => {
     const btn = document.createElement('button');
-    btn.className = 'type-pill' + (type === selected ? ' sel' : '');
+    const isCustomBtn = type === 'Custom…';
+    const isSel = isCustomBtn ? isCustom : type === selected;
+    btn.className = 'type-pill' + (isSel ? ' sel' : '');
     btn.textContent = type;
-    btn.onclick = () => { selectedType = type; renderTypePills(types, type); };
+    btn.onclick = () => {
+      if (isCustomBtn) {
+        selectedType = customInput.value.trim() || '';
+        customWrap.classList.add('show');
+        customInput.focus();
+        renderTypePills(types, selectedType || 'Custom…_active');
+      } else {
+        selectedType = type;
+        customWrap.classList.remove('show');
+        renderTypePills(types, type);
+      }
+    };
     c.appendChild(btn);
   });
+  if (isCustom) {
+    customWrap.classList.add('show');
+    customInput.value = selected;
+  } else if (!document.getElementById('custom-type-wrap').classList.contains('show')) {
+    customInput.value = '';
+  }
+  customInput.oninput = () => { selectedType = customInput.value.trim(); };
 }
 
 function populateCatSelect(selectedId) {
@@ -725,6 +802,7 @@ function selKind(btn) {
   selectedKind = btn.dataset.k;
   document.querySelectorAll('.kind-pill').forEach(b => b.classList.remove('sel'));
   btn.classList.add('sel');
+  document.getElementById('custom-kind-wrap').style.display = selectedKind === 'custom' ? 'block' : 'none';
 }
 
 function openCategoryModal(catId) {
@@ -732,19 +810,26 @@ function openCategoryModal(catId) {
   const isEdit = catId !== null;
   document.getElementById('cat-modal-title').textContent = isEdit ? 'Edit Category' : 'New Category';
   document.getElementById('cat-delete-btn').style.display = isEdit ? 'block' : 'none';
-  let name='', color='#64748b', kind='general', trackGrades=false;
+  let name='', color='#64748b', kind='general', kindLabel='', trackGrades=false;
   if (isEdit) {
     const state = getState();
     const cat = (state.categories||[]).find(c=>c.id===catId);
-    if (cat) { name=cat.name; color=cat.color; kind=cat.kind||'general'; trackGrades=cat.trackGrades||false; }
+    if (cat) { name=cat.name; color=cat.color; kind=cat.kind||'general'; kindLabel=cat.kindLabel||''; trackGrades=cat.trackGrades||false; }
   }
   document.getElementById('cat-name').value = name;
   document.getElementById('cat-color-hex').value = color;
   document.getElementById('cat-color-picker').value = color;
   document.getElementById('cat-track-grades').checked = trackGrades;
-  selectedCatColor = color; selectedKind = kind;
+  selectedCatColor = color;
+  // handle custom kind
+  const isCustomKind = kind && !['class','general','project','personal','reminder'].includes(kind);
+  selectedKind = isCustomKind ? 'custom' : kind;
   buildSwatches(color);
-  document.querySelectorAll('.kind-pill').forEach(b => b.classList.toggle('sel', b.dataset.k === kind));
+  document.querySelectorAll('.kind-pill').forEach(b => b.classList.toggle('sel', b.dataset.k === selectedKind));
+  const customKindWrap = document.getElementById('custom-kind-wrap');
+  customKindWrap.style.display = selectedKind === 'custom' ? 'block' : 'none';
+  if (isCustomKind) document.getElementById('cat-kind-custom').value = kindLabel || kind;
+  else document.getElementById('cat-kind-custom').value = '';
   document.getElementById('cat-modal').classList.add('open');
   setTimeout(() => document.getElementById('cat-name').focus(), 100);
 }
@@ -754,13 +839,22 @@ function saveCategory() {
   if (!name) { document.getElementById('cat-name').focus(); return; }
   const state = getState();
   const trackGrades = document.getElementById('cat-track-grades').checked;
+  let finalKind = selectedKind;
+  let kindLabel = '';
+  if (selectedKind === 'custom') {
+    const customVal = document.getElementById('cat-kind-custom').value.trim();
+    finalKind = customVal || 'general';
+    kindLabel = customVal;
+  } else {
+    kindLabel = KIND_LABELS[selectedKind] || selectedKind;
+  }
   if (editingCatId) {
     const cat = (state.categories||[]).find(c=>c.id===editingCatId);
-    if (cat) { cat.name=name; cat.color=selectedCatColor; cat.kind=selectedKind; cat.trackGrades=trackGrades; }
+    if (cat) { cat.name=name; cat.color=selectedCatColor; cat.kind=finalKind; cat.kindLabel=kindLabel; cat.trackGrades=trackGrades; }
   } else {
     const id = Date.now().toString();
     if (!state.categories) state.categories = [];
-    state.categories.push({ id, name, color:selectedCatColor, kind:selectedKind, trackGrades, x:80+Math.random()*300, y:80+Math.random()*200, w:260 });
+    state.categories.push({ id, name, color:selectedCatColor, kind:finalKind, kindLabel, trackGrades, x:80+Math.random()*300, y:80+Math.random()*200, w:260 });
     if (!state.grades) state.grades = {};
     state.grades[id] = [];
   }
@@ -902,7 +996,7 @@ function exportICS() {
   const state=getState();
   const tasks=(state.tasks||[]).filter(t=>t.dueDate&&!t.done);
   if(!tasks.length){alert('No tasks with due dates.');return;}
-  let ics=`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//OrganizerPlus//EN\r\nCALSCALE:GREGORIAN\r\n`;
+  let ics=`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//The Board//EN\r\nCALSCALE:GREGORIAN\r\n`;
   tasks.forEach(t=>{
     const cat=(state.categories||[]).find(c=>c.id===t.catId);
     const d=t.dueDate.replace(/-/g,'');
