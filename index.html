@@ -601,7 +601,7 @@ function renderGroup(cat, container, state) {
   const el = document.createElement('div');
   const isCollapsed = (state.collapsed||{})[cat.id];
   el.className = 'class-group' + (isCollapsed ? ' collapsed' : '');
-  el.style.left = (cat.x||20)+'px'; el.style.top = (cat.y||20)+'px'; el.style.width = (cat.w||260)+'px';
+  el.style.left = (cat.x ?? 20)+'px'; el.style.top = (cat.y ?? 20)+'px'; el.style.width = (cat.w ?? 260)+'px';
   if (!isCollapsed && cat.h) el.style.height = cat.h+'px';
   el.dataset.catId = cat.id;
 
@@ -688,7 +688,7 @@ function initGroupDrag(el, handle, cat) {
   handle.addEventListener('mousedown', e => {
     if (e.target.classList.contains('group-btn')) return;
     e.preventDefault();
-    dragging = true; startMX = e.clientX; startMY = e.clientY; startEX = cat.x||0; startEY = cat.y||0;
+    dragging = true; startMX = e.clientX; startMY = e.clientY; startEX = cat.x ?? 20; startEY = cat.y ?? 20;
     document.querySelectorAll('.class-group').forEach(g => g.classList.remove('active'));
     el.classList.add('dragging', 'active'); el.style.zIndex = 500;
     const onMove = ev => {
