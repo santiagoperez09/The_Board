@@ -69,7 +69,7 @@
   .group-count { font-size: 11px; color: var(--text3); font-family: var(--mono); }
   .group-btn { width: 22px; height: 22px; border-radius: 5px; border: none; background: none; color: var(--text3); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .group-btn:hover { background: var(--surface2); color: var(--text2); }
-  .group-tasks { overflow-y: auto; padding: 8px; flex: 1; min-height: 40px; }
+  .group-tasks { overflow-y: auto; padding: 8px; flex: 1; min-height: 40px; display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; }
   .group-tasks::-webkit-scrollbar { width: 4px; }
   .group-tasks::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   .collapsed .group-tasks, .collapsed .group-footer { display: none; }
@@ -85,8 +85,25 @@
   .resize-handle-s:hover::after { background: var(--text3); }
   .collapsed .resize-handle-se, .collapsed .resize-handle-s { display: none; }
 
+  /* GROUP MENU (sort + columns) */
+  .group-menu { position: fixed; z-index: 600; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 34px rgba(0,0,0,0.15); padding: 6px; width: 208px; display: none; }
+  .group-menu.open { display: block; }
+  .group-menu-label { font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 7px 8px 4px; }
+  .group-menu-item { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--text); border: none; background: none; width: 100%; font-family: var(--font); text-align: left; }
+  .group-menu-item:hover { background: var(--surface2); }
+  .group-menu-item.sel { background: var(--surface2); font-weight: 500; }
+  .group-menu-check { margin-left: auto; font-size: 11px; }
+  .group-col-btns { display: flex; gap: 6px; padding: 2px 8px 6px; }
+  .group-col-btn { flex: 1; padding: 7px 0; border-radius: 6px; border: 1.5px solid var(--border); background: none; font-size: 12px; cursor: pointer; font-family: var(--font); color: var(--text2); }
+  .group-col-btn:hover { border-color: var(--text3); color: var(--text); }
+  .group-col-btn.sel { background: var(--text); color: #fff; border-color: var(--text); }
+  .group-menu-hint { font-size: 10px; color: var(--text3); padding: 4px 8px 2px; line-height: 1.4; }
+
   /* TASK CARD */
-  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin-bottom: 6px; cursor: default; transition: box-shadow 0.12s; position: relative; }
+  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; cursor: default; transition: box-shadow 0.12s; position: relative; }
+  .group-tasks .task-card { cursor: grab; align-self: start; }
+  .group-tasks .task-card:active { cursor: grabbing; }
+  .task-card.dragging-task { opacity: 0.4; box-shadow: 0 8px 24px rgba(0,0,0,0.16); }
   .task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); border-color: #ccc; }
   .task-card.priority-red { border-left: 3px solid var(--red); background: var(--red-bg); }
   .task-card.priority-yellow { border-left: 3px solid var(--yellow); background: var(--yellow-bg); }
@@ -271,6 +288,8 @@
 </div>
 
 <div id="canvas"><div id="canvas-inner"></div></div>
+
+<div class="group-menu" id="group-menu"></div>
 
 <div id="planner-view" class="overlay-view">
   <div class="planner-layout">
@@ -596,6 +615,128 @@ function renderBoard() {
   inner.appendChild(tile);
 }
 
+// ── task ordering: manual / date / importance ────────────────────────────────
+const SORT_LABELS = { manual:'Manual order', date:'Date', priority:'Importance' };
+const PRIORITY_RANK = { red:0, yellow:1, green:2, '':3 };
+const FAR_DATE = '9999-99-99', FAR_TIME = '99:99';
+
+function sortTasksFor(cat, tasks) {
+  const mode = cat.sortMode || 'priority';
+  const byDate = (a,b) => {
+    const ad = a.dueDate || FAR_DATE, bd = b.dueDate || FAR_DATE;
+    if (ad !== bd) return ad < bd ? -1 : 1;
+    const at = a.dueTime || FAR_TIME, bt = b.dueTime || FAR_TIME;
+    return at === bt ? 0 : (at < bt ? -1 : 1);
+  };
+  const byPriority = (a,b) => PRIORITY_RANK[a.priority||''] - PRIORITY_RANK[b.priority||''];
+  return [...tasks].sort((a,b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;   // completed always sink
+    if (mode === 'manual') return (a.order ?? Infinity) - (b.order ?? Infinity);
+    if (mode === 'date') return byDate(a,b) || byPriority(a,b);
+    return byPriority(a,b) || byDate(a,b);
+  });
+}
+
+// Which card should the dragged one land in front of? In a single column that is
+// purely vertical; only with real side-by-side columns does x decide within a row.
+function getDragAfterElement(container, x, y, cols) {
+  let closest = null, closestDist = Infinity;
+  container.querySelectorAll('.task-card:not(.dragging-task)').forEach(el => {
+    const b = el.getBoundingClientRect();
+    const cx = b.left + b.width/2, cy = b.top + b.height/2;
+    const sameRow = cols > 1 && Math.abs(y - cy) < b.height/2;
+    if (!(sameRow ? x < cx : y < cy)) return;        // pointer is past this card
+    const d = (x-cx)**2 + (y-cy)**2;
+    if (d < closestDist) { closestDist = d; closest = el; }
+  });
+  return closest;
+}
+
+function initTaskReorder(container, cat) {
+  container.querySelectorAll('.task-card').forEach(card => {
+    card.draggable = true;
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.taskId);
+      requestAnimationFrame(() => card.classList.add('dragging-task'));
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging-task');
+      commitTaskOrder(container, cat);
+    });
+  });
+
+  container.addEventListener('dragover', e => {
+    const dragging = container.querySelector('.dragging-task');
+    if (!dragging) return;                            // ignore drags from other groups
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const after = getDragAfterElement(container, e.clientX, e.clientY, Math.max(1, Math.min(3, cat.cols || 1)));
+    if (after) container.insertBefore(dragging, after);
+    else container.appendChild(dragging);
+  });
+  container.addEventListener('drop', e => e.preventDefault());
+}
+
+function commitTaskOrder(container, cat) {
+  const state = getState();
+  [...container.querySelectorAll('.task-card')].forEach((card, i) => {
+    const t = (state.tasks||[]).find(x => x.id === card.dataset.taskId);
+    if (t) t.order = i;
+  });
+  cat.sortMode = 'manual';                            // hand-placing implies manual order
+  save();
+  renderBoard();
+}
+
+// ── group menu ───────────────────────────────────────────────────────────────
+function closeGroupMenu() { document.getElementById('group-menu').classList.remove('open'); }
+
+function openGroupMenu(catId, ev) {
+  ev.stopPropagation();
+  const state = getState();
+  const cat = (state.categories||[]).find(c => c.id === catId);
+  if (!cat) return;
+  const menu = document.getElementById('group-menu');
+  if (menu.classList.contains('open') && menu.dataset.catId === catId) { closeGroupMenu(); return; }
+  menu.dataset.catId = catId;
+  const mode = cat.sortMode || 'priority';
+  const cols = Math.max(1, Math.min(3, cat.cols || 1));
+
+  menu.innerHTML = `
+    <div class="group-menu-label">Sort tasks by</div>
+    ${[['manual','↕'],['date','📅'],['priority','🔴']].map(([m,icon]) =>
+      `<button class="group-menu-item${mode===m?' sel':''}" data-sort="${m}"><span>${icon}</span>${SORT_LABELS[m]}${mode===m?'<span class="group-menu-check">✓</span>':''}</button>`).join('')}
+    <div class="group-menu-hint">Drag any task to rearrange — that switches this category to manual order.</div>
+    <div class="group-menu-label">Columns</div>
+    <div class="group-col-btns">
+      ${[1,2,3].map(n => `<button class="group-col-btn${cols===n?' sel':''}" data-cols="${n}">${n}</button>`).join('')}
+    </div>`;
+
+  menu.querySelectorAll('[data-sort]').forEach(b => b.onclick = () => {
+    cat.sortMode = b.dataset.sort;
+    save(); closeGroupMenu(); renderBoard();
+  });
+  menu.querySelectorAll('[data-cols]').forEach(b => b.onclick = () => {
+    const n = +b.dataset.cols;
+    cat.cols = n;
+    if (n > 1) cat.w = Math.max(cat.w || 260, n * 170);  // keep columns usably wide
+    save(); closeGroupMenu(); renderBoard();
+  });
+
+  const r = ev.currentTarget.getBoundingClientRect();
+  menu.classList.add('open');
+  menu.style.left = Math.max(10, Math.min(r.left, window.innerWidth - 218)) + 'px';
+  menu.style.top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 10) + 'px';
+}
+
+document.addEventListener('mousedown', e => {
+  const menu = document.getElementById('group-menu');
+  if (!menu.classList.contains('open')) return;
+  if (menu.contains(e.target) || e.target.closest('.group-menu-btn')) return;  // let the button toggle itself
+  closeGroupMenu();
+});
+
 function renderGroup(cat, container, state) {
   const tasks = (state.tasks||[]).filter(t => t.catId === cat.id);
   const el = document.createElement('div');
@@ -605,12 +746,7 @@ function renderGroup(cat, container, state) {
   if (!isCollapsed && cat.h) el.style.height = cat.h+'px';
   el.dataset.catId = cat.id;
 
-  const sortedTasks = [...tasks].sort((a,b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
-    const pd = {red:0,yellow:1,green:2,'':3};
-    if ((pd[a.priority||'']) !== (pd[b.priority||''])) return pd[a.priority||''] - pd[b.priority||''];
-    return (a.dueDate||'') < (b.dueDate||'') ? -1 : 1;
-  });
+  const sortedTasks = sortTasksFor(cat, tasks);
 
   const doneCount = tasks.filter(t=>t.done).length;
   const kindLabel = cat.kindLabel || KIND_LABELS[cat.kind] || cat.kind || '';
@@ -620,6 +756,7 @@ function renderGroup(cat, container, state) {
       <span class="group-name">${cat.name}</span>
       <span class="group-badge" style="background:${cat.color}18;color:${cat.color}">${kindLabel}</span>
       <span class="group-count">${tasks.filter(t=>!t.done).length}</span>
+      <button class="group-btn group-menu-btn" onclick="openGroupMenu('${cat.id}',event)" title="Sort & columns — ${SORT_LABELS[cat.sortMode||'priority']}, ${cat.cols||1} col">⋯</button>
       <button class="group-btn" onclick="openCategoryModal('${cat.id}')">✏️</button>
       <button class="group-btn" onclick="toggleCollapse('${cat.id}',event)">${isCollapsed?'▶':'▼'}</button>
     </div>
@@ -638,7 +775,10 @@ function renderGroup(cat, container, state) {
   });
 
   const tasksEl = el.querySelector(`#tasks-${cat.id}`);
+  const cols = Math.max(1, Math.min(3, cat.cols || 1));
+  tasksEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
   sortedTasks.forEach(t => tasksEl.appendChild(makeTaskCard(t, cat)));
+  initTaskReorder(tasksEl, cat);
   initGroupDrag(el, el.querySelector('.group-header'), cat);
   initGroupResizeSE(el, el.querySelector('.resize-handle-se'), cat);
   initGroupResizeS(el, el.querySelector('.resize-handle-s'), cat);
@@ -647,6 +787,7 @@ function renderGroup(cat, container, state) {
 function makeTaskCard(t, cat) {
   const div = document.createElement('div');
   div.className = `task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}`;
+  div.dataset.taskId = t.id;
   const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + (t.dueTime ? ' · ' + formatTime(t.dueTime) : '') : '';
   div.innerHTML = `
     <div class="task-top">
@@ -1444,7 +1585,7 @@ function renderAll() {
 }
 
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){['task-modal','cat-modal','grade-modal'].forEach(id=>closeModal(id));}
+  if(e.key==='Escape'){['task-modal','cat-modal','grade-modal'].forEach(id=>closeModal(id));closeGroupMenu();}
   if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();openAddTask();}
 });
 
@@ -1466,6 +1607,7 @@ window.selPriority = selPriority;
 window.selKind = selKind;
 window.toggleDone = toggleDone;
 window.toggleCollapse = toggleCollapse;
+window.openGroupMenu = openGroupMenu;
 window.duplicateTask = duplicateTask;
 window.deleteTaskById = deleteTaskById;
 window.clearDone = clearDone;
