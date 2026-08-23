@@ -76,14 +76,20 @@
   .group-footer { padding: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
   .add-task-btn { width: 100%; padding: 7px; border: 1.5px dashed var(--border); border-radius: 7px; background: none; color: var(--text3); font-size: 12px; font-family: var(--font); cursor: pointer; transition: all 0.15s; }
   .add-task-btn:hover { border-color: var(--text3); color: var(--text2); background: var(--surface2); }
-  /* SE resize handle (width+height) */
-  .resize-handle-se { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: se-resize; display: flex; align-items: flex-end; justify-content: flex-end; padding: 3px; z-index: 10; }
-  .resize-handle-se::after { content: ''; width: 6px; height: 6px; border-right: 2px solid var(--border); border-bottom: 2px solid var(--border); border-radius: 1px; }
-  /* S resize handle (height only) */
-  .resize-handle-s { position: absolute; left: 20%; right: 20%; bottom: 0; height: 6px; cursor: s-resize; z-index: 9; }
-  .resize-handle-s::after { content: ''; position: absolute; left: 50%; transform: translateX(-50%); bottom: 2px; width: 30px; height: 3px; background: var(--border); border-radius: 2px; }
-  .resize-handle-s:hover::after { background: var(--text3); }
-  .collapsed .resize-handle-se, .collapsed .resize-handle-s { display: none; }
+  /* RESIZE HANDLES — all four edges + all four corners */
+  .rz { position: absolute; z-index: 10; }
+  .rz-n { top: -3px; left: 12px; right: 12px; height: 8px; cursor: n-resize; }
+  .rz-s { bottom: -3px; left: 12px; right: 12px; height: 8px; cursor: s-resize; }
+  .rz-w { left: -3px; top: 12px; bottom: 12px; width: 8px; cursor: w-resize; }
+  .rz-e { right: -3px; top: 12px; bottom: 12px; width: 8px; cursor: e-resize; }
+  .rz-nw { top: -3px; left: -3px; width: 15px; height: 15px; cursor: nw-resize; z-index: 11; }
+  .rz-ne { top: -3px; right: -3px; width: 15px; height: 15px; cursor: ne-resize; z-index: 11; }
+  .rz-sw { bottom: -3px; left: -3px; width: 15px; height: 15px; cursor: sw-resize; z-index: 11; }
+  .rz-se { bottom: -3px; right: -3px; width: 15px; height: 15px; cursor: se-resize; z-index: 11; }
+  /* subtle grip so the corner stays discoverable */
+  .rz-se::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 6px; height: 6px; border-right: 2px solid var(--border); border-bottom: 2px solid var(--border); border-radius: 1px; }
+  .class-group:hover .rz-se::after { border-color: var(--text3); }
+  .collapsed .rz { display: none; }
 
   /* GROUP MENU (sort + columns) */
   .group-menu { position: fixed; z-index: 600; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 34px rgba(0,0,0,0.15); padding: 6px; width: 208px; display: none; }
@@ -613,6 +619,15 @@ function renderBoard() {
   tile.style.left = '1160px'; tile.style.top = '20px';
   tile.onclick = () => openCategoryModal(null);
   inner.appendChild(tile);
+
+  // groups have no max size, so grow the canvas to keep every edge reachable
+  let maxR = 0, maxB = 0;
+  state.categories.forEach(c => {
+    maxR = Math.max(maxR, (c.x ?? 20) + (c.w ?? 260));
+    maxB = Math.max(maxB, (c.y ?? 20) + (c.h ?? 300));
+  });
+  inner.style.width  = Math.max(3000, maxR + 400) + 'px';
+  inner.style.height = Math.max(2000, maxB + 400) + 'px';
 }
 
 // ── task ordering: manual / date / importance ────────────────────────────────
@@ -763,8 +778,14 @@ function renderGroup(cat, container, state) {
     <div class="group-tasks" id="tasks-${cat.id}"></div>
     ${doneCount > 0 && !isCollapsed ? `<div class="clear-done-bar"><span style="font-size:11px;color:var(--text3)">${doneCount} completed</span><button class="clear-done-btn" onclick="clearDone('${cat.id}')">Clear completed</button></div>` : ''}
     <div class="group-footer"><button class="add-task-btn" onclick="openAddTask('${cat.id}')">+ Add task</button></div>
-    <div class="resize-handle-s"></div>
-    <div class="resize-handle-se"></div>`;
+    <div class="rz rz-n" data-dir="n"></div>
+    <div class="rz rz-s" data-dir="s"></div>
+    <div class="rz rz-w" data-dir="w"></div>
+    <div class="rz rz-e" data-dir="e"></div>
+    <div class="rz rz-nw" data-dir="nw"></div>
+    <div class="rz rz-ne" data-dir="ne"></div>
+    <div class="rz rz-sw" data-dir="sw"></div>
+    <div class="rz rz-se" data-dir="se"></div>`;
 
   container.appendChild(el);
 
@@ -780,8 +801,7 @@ function renderGroup(cat, container, state) {
   sortedTasks.forEach(t => tasksEl.appendChild(makeTaskCard(t, cat)));
   initTaskReorder(tasksEl, cat);
   initGroupDrag(el, el.querySelector('.group-header'), cat);
-  initGroupResizeSE(el, el.querySelector('.resize-handle-se'), cat);
-  initGroupResizeS(el, el.querySelector('.resize-handle-s'), cat);
+  el.querySelectorAll('.rz').forEach(h => initGroupResize(el, h, cat, h.dataset.dir));
 }
 
 function makeTaskCard(t, cat) {
@@ -858,39 +878,40 @@ function clearDone(catId) {
   save(); renderAll();
 }
 
-function initGroupResizeSE(el, handle, cat) {
+// Resize from any edge or corner. `dirs` is any combination of n/s/e/w.
+// Dragging a north or west edge moves the group's origin as well as its size,
+// so the opposite edge stays anchored. No maximum — only a usable minimum.
+const MIN_GROUP_W = 200, MIN_GROUP_H = 120;
+
+function initGroupResize(el, handle, cat, dirs) {
   handle.addEventListener('mousedown', e => {
     e.preventDefault(); e.stopPropagation();
     document.querySelectorAll('.class-group').forEach(g => g.classList.remove('active'));
     el.classList.add('resizing', 'active');
     const startX = e.clientX, startY = e.clientY;
-    const startW = cat.w||260, startH = cat.h || el.offsetHeight;
-    const onMove = ev => {
-      cat.w = Math.max(200, Math.min(700, startW + ev.clientX - startX));
-      cat.h = Math.max(120, startH + ev.clientY - startY);
-      el.style.width = cat.w+'px'; el.style.height = cat.h+'px';
-    };
-    const onUp = () => {
-      el.classList.remove('resizing');
-      save(); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
-  });
-}
+    const startW = cat.w ?? 260, startH = cat.h ?? el.offsetHeight;
+    const startL = cat.x ?? 20,  startT = cat.y ?? 20;
+    const right = startL + startW, bottom = startT + startH;
 
-function initGroupResizeS(el, handle, cat) {
-  handle.addEventListener('mousedown', e => {
-    e.preventDefault(); e.stopPropagation();
-    document.querySelectorAll('.class-group').forEach(g => g.classList.remove('active'));
-    el.classList.add('resizing', 'active');
-    const startY = e.clientY, startH = cat.h || el.offsetHeight;
     const onMove = ev => {
-      cat.h = Math.max(120, startH + ev.clientY - startY);
-      el.style.height = cat.h+'px';
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if (dirs.includes('e')) cat.w = Math.max(MIN_GROUP_W, startW + dx);
+      if (dirs.includes('s')) cat.h = Math.max(MIN_GROUP_H, startH + dy);
+      if (dirs.includes('w')) {
+        cat.x = Math.max(0, Math.min(startL + dx, right - MIN_GROUP_W));
+        cat.w = right - cat.x;
+      }
+      if (dirs.includes('n')) {
+        cat.y = Math.max(0, Math.min(startT + dy, bottom - MIN_GROUP_H));
+        cat.h = bottom - cat.y;
+      }
+      el.style.width = cat.w+'px';  el.style.height = cat.h+'px';
+      el.style.left  = cat.x+'px';  el.style.top    = cat.y+'px';
     };
     const onUp = () => {
       el.classList.remove('resizing');
-      save(); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
+      save(); renderBoard();   // re-render so the canvas can grow to fit
+      document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
     };
     document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
   });
