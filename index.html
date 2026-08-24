@@ -246,7 +246,13 @@
   .planner-hour-label { width:56px; flex-shrink:0; font-size:10px; color:var(--text3); font-family:var(--mono); text-align:right; padding:4px 8px 0 0; }
   .planner-hour-slot { flex:1; position:relative; cursor:pointer; }
   .planner-hour-slot:hover { background:var(--surface2); }
-  .planner-block { position:absolute; left:60px; right:8px; border-radius:6px; padding:4px 8px; font-size:11px; overflow:hidden; cursor:pointer; z-index:2; line-height:1.35; }
+  .planner-block { position:absolute; left:60px; right:8px; border-radius:6px; padding:4px 8px; font-size:11px; overflow:hidden; cursor:pointer; z-index:2; line-height:1.35; display:flex; align-items:flex-start; gap:6px; }
+  .planner-block-cb { width:13px; height:13px; border-radius:4px; border:1.5px solid currentColor; opacity:0.5; flex-shrink:0; margin-top:1px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:opacity 0.12s; }
+  .planner-block-cb:hover { opacity:1; }
+  .planner-block-cb.checked { background:currentColor; opacity:0.85; }
+  .planner-block-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .planner-block.done-block { opacity:0.55; }
+  .planner-block.done-block .planner-block-text { text-decoration:line-through; }
 </style>
 </head>
 <body>
@@ -568,6 +574,7 @@ const TYPE_SETS = {
   reminder: ['Reminder','Appointment','Deadline','Follow-up','Call','Email','Other'],
 };
 const KIND_LABELS = { class:'Class', general:'General', project:'Project', personal:'Personal', reminder:'Reminders' };
+const CHECK_SVG = '<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><polyline points="1,3.5 3.5,6 8,1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // ── VIEW ─────────────────────────────────────────────────────────────────────
 let currentView = 'board';
@@ -812,7 +819,7 @@ function makeTaskCard(t, cat) {
   div.innerHTML = `
     <div class="task-top">
       <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">
-        ${t.done?'<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><polyline points="1,3.5 3.5,6 8,1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>':''}
+        ${t.done?CHECK_SVG:''}
       </div>
       <span class="task-title">${t.title}</span>
     </div>
@@ -833,7 +840,7 @@ function toggleDone(id, e) {
   e.stopPropagation();
   const state = getState();
   const t = state.tasks.find(t=>t.id===id);
-  if (t) { t.done = !t.done; save(); renderBoard(); }
+  if (t) { t.done = !t.done; save(); renderAll(); }   // renderAll so the planner updates too
 }
 
 function toggleCollapse(catId, e) {
@@ -1537,7 +1544,10 @@ function renderPlannerDay() {
   adWrap.innerHTML = allDayTasks.length ? allDayTasks.map(t=>{
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     return `<div class="task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}" style="cursor:pointer;" onclick="openEditTask('${t.id}')">
-      <div class="task-top"><span class="task-title">${t.title}</span></div>
+      <div class="task-top">
+        <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">${t.done?CHECK_SVG:''}</div>
+        <span class="task-title">${t.title}</span>
+      </div>
       <div class="task-meta">${t.type?`<span class="task-type-badge" style="background:${cat?.color||'#888'}18;color:${cat?.color||'#888'}">${t.type}</span>`:''}<span class="task-date" style="color:${cat?.color||'#888'}">${cat?.name||''}</span></div>
     </div>`;
   }).join('') : '';
@@ -1564,10 +1574,13 @@ function renderPlannerDay() {
     const topPx = ((th - HOURS[0]) + tm/60) * 56;
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const block = document.createElement('div');
-    block.className = 'planner-block' + (t.done ? ' done-card' : '');
+    block.className = 'planner-block' + (t.done ? ' done-block' : '');
     block.style.cssText = `top:${topPx}px;min-height:26px;background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#333'};`;
-    block.textContent = formatTime(t.dueTime) + '  ' + t.title;
+    block.innerHTML = `
+      <span class="planner-block-cb${t.done?' checked':''}" title="${t.done?'Mark not done':'Mark done'}">${t.done?CHECK_SVG:''}</span>
+      <span class="planner-block-text">${formatTime(t.dueTime)}  ${t.title}</span>`;
     block.title = t.title;
+    block.querySelector('.planner-block-cb').onclick = (e) => toggleDone(t.id, e);
     block.onclick = (e) => { e.stopPropagation(); openEditTask(t.id); };
     timeline.appendChild(block);
   });
