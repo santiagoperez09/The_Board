@@ -261,7 +261,7 @@
 
   /* DAILY PLANNER */
   .planner-layout { display:flex; gap:20px; align-items:flex-start; }
-  .planner-sidebar { width:280px; flex-shrink:0; position:sticky; top:0; }
+  .planner-sidebar { width:340px; flex-shrink:0; }
   .planner-minical-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
   .planner-minical-title { font-size:13px; font-weight:500; }
   .planner-minical-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
@@ -273,10 +273,19 @@
   .planner-minical-cell.selected { background:var(--text); color:var(--accent-fg); }
   .planner-minical-dot { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; background:var(--blue); }
   .planner-minical-cell.selected .planner-minical-dot { background:var(--accent-fg); }
-  .planner-main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  .planner-day-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-shrink:0; }
-  .planner-day-title { font-size:18px; font-weight:500; }
+  .planner-main { flex:1; min-width:0; }
+  .planner-day-header { margin:20px 0 10px; padding-top:16px; border-top:1px solid var(--border); }
+  /* arrows pin to the column edges and the title flexes between them, so the
+     arrows never shuffle as the date text changes length */
+  .planner-day-nav { display:flex; align-items:center; gap:8px; }
+  .planner-day-title { font-size:16px; font-weight:500; flex:1; min-width:0; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .planner-add-btn { width:100%; margin-bottom:12px; }
+  .planner-today-tag { display:none; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--blue); background:var(--today-bg); border:1px solid var(--border); padding:2px 7px; border-radius:5px; }
+  .planner-today-tag.show { display:inline-block; }
   .planner-allday { margin-bottom:10px; display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+  .planner-section-label { font-size:10px; font-weight:500; color:var(--text3); text-transform:uppercase; letter-spacing:0.06em; margin-top:4px; }
+  .planner-section-label:first-child { margin-top:0; }
+  .planner-time-chip { font-family:var(--mono); font-size:11px; font-weight:500; padding:1px 7px; border-radius:5px; flex-shrink:0; margin-top:1px; }
   .planner-timeline-wrap { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
   .planner-timeline { position:relative; }
   .planner-hour-row { display:flex; border-top:1px solid var(--border); height:56px; }
@@ -357,13 +366,19 @@
       </div>
       <div class="planner-minical-grid" id="planner-minical-grid"></div>
       <button class="cal-today-btn" style="width:100%;margin-top:10px;margin-left:0;" onclick="plannerGoToday()">Today</button>
+
+      <div class="planner-day-header">
+        <div class="planner-day-nav">
+          <button class="cal-nav" onclick="plannerDayNav(-1)" title="Previous day">‹</button>
+          <div class="planner-day-title" id="planner-day-title"></div>
+          <span class="planner-today-tag" id="planner-today-tag">Today</span>
+          <button class="cal-nav" onclick="plannerDayNav(1)" title="Next day">›</button>
+        </div>
+      </div>
+      <button class="topbar-btn primary planner-add-btn" onclick="openPlannerAdd()">+ Add to this day</button>
+      <div id="planner-allday" class="planner-allday"></div>
     </div>
     <div class="planner-main">
-      <div class="planner-day-header">
-        <div class="planner-day-title" id="planner-day-title"></div>
-        <button class="topbar-btn primary" onclick="openPlannerAdd()">+ Add to this day</button>
-      </div>
-      <div id="planner-allday" class="planner-allday"></div>
       <div class="planner-timeline-wrap">
         <div id="planner-timeline" class="planner-timeline"></div>
       </div>
@@ -1691,6 +1706,16 @@ function plannerMiniNav(dir) {
   renderPlannerMiniCal();
 }
 
+// Step one day at a time. Passing an out-of-range day number to the Date
+// constructor rolls month and year over on its own.
+function plannerDayNav(dir) {
+  const d = plannerSelectedDate;
+  plannerSelectedDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir);
+  // keep the side panel following along when we cross into another month
+  plannerMiniCalDate = new Date(plannerSelectedDate.getFullYear(), plannerSelectedDate.getMonth(), 1);
+  renderPlannerView();
+}
+
 function plannerGoToday() {
   plannerSelectedDate = new Date();
   plannerMiniCalDate = new Date();
@@ -1745,32 +1770,52 @@ function renderPlannerDay() {
   const state = getState();
   const ds = dstr(plannerSelectedDate);
   document.getElementById('planner-day-title').textContent = plannerSelectedDate.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
+  document.getElementById('planner-today-tag')
+    .classList.toggle('show', dstr(plannerSelectedDate) === dstr(new Date()));
 
   const dayTasks = (state.tasks||[]).filter(t=>t.dueDate===ds);
   const allDayTasks = dayTasks.filter(t=>!t.dueTime);
-  const timedTasks = dayTasks.filter(t=>t.dueTime);
+  const timedTasks = dayTasks.filter(t=>t.dueTime)
+                             .sort((a,b) => a.dueTime < b.dueTime ? -1 : a.dueTime > b.dueTime ? 1 : 0);
 
-  const adWrap = document.getElementById('planner-allday');
-  adWrap.innerHTML = allDayTasks.length ? allDayTasks.map(t=>{
+  // The hourly grid normally runs 7am–10pm, but stretch it to cover anything
+  // scheduled outside that window so a late-night task is never dropped.
+  let firstH = 7, lastH = 22;
+  timedTasks.forEach(t => {
+    const h = Number(t.dueTime.split(':')[0]);
+    if (Number.isFinite(h)) { firstH = Math.min(firstH, h); lastH = Math.max(lastH, h); }
+  });
+  const hours = Array.from({length: lastH - firstH + 1}, (_,i) => i + firstH);
+
+  // Agenda across the top: every task for the day, so nothing hides further down
+  // the scroll. Timed items first in clock order, then the all-day ones.
+  const agendaCard = (t, showTime) => {
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
+    const color = cat?.color || '#888';
     return `<div class="task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}" style="cursor:pointer;" onclick="openEditTask('${t.id}')">
       <div class="task-top">
         <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">${t.done?CHECK_SVG:''}</div>
+        ${showTime?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${formatTime(t.dueTime)}</span>`:''}
         <span class="task-title">${t.title}</span>
       </div>
-      <div class="task-meta">${t.type?`<span class="task-type-badge" style="background:${cat?.color||'#888'}18;color:${cat?.color||'#888'}">${t.type}</span>`:''}<span class="task-date" style="color:${cat?.color||'#888'}">${cat?.name||''}</span></div>
+      <div class="task-meta">${t.type?`<span class="task-type-badge" style="background:${color}18;color:${color}">${t.type}</span>`:''}<span class="task-date" style="color:${color}">${cat?.name||''}</span></div>
       ${noteBlock(t)}
     </div>`;
-  }).join('') : '';
+  };
+
+  const adWrap = document.getElementById('planner-allday');
+  adWrap.innerHTML =
+    (timedTasks.length  ? `<div class="planner-section-label">Scheduled</div>` + timedTasks.map(t => agendaCard(t, true)).join('')  : '') +
+    (allDayTasks.length ? `<div class="planner-section-label">All day</div>`   + allDayTasks.map(t => agendaCard(t, false)).join('') : '');
 
   const timeline = document.getElementById('planner-timeline');
   timeline.innerHTML = '';
-  HOURS.forEach(h => {
+  hours.forEach(h => {
     const row = document.createElement('div');
     row.className = 'planner-hour-row';
     const lbl = document.createElement('div');
     lbl.className = 'planner-hour-label';
-    lbl.textContent = h===12?'12pm':h<12?`${h}am`:`${h-12}pm`;
+    lbl.textContent = h===0?'12am':h===12?'12pm':h<12?`${h}am`:`${h-12}pm`;
     row.appendChild(lbl);
     const slot = document.createElement('div');
     slot.className = 'planner-hour-slot';
@@ -1781,8 +1826,7 @@ function renderPlannerDay() {
 
   timedTasks.forEach(t => {
     const [th,tm] = t.dueTime.split(':').map(Number);
-    if (th < HOURS[0] || th > HOURS[HOURS.length-1]) return;
-    const topPx = ((th - HOURS[0]) + tm/60) * 56;
+    const topPx = ((th - hours[0]) + tm/60) * 56;
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const block = document.createElement('div');
     block.className = 'planner-block' + (t.done ? ' done-block' : '');
@@ -1876,6 +1920,7 @@ window.calScrollToday = calScrollToday;
 window.weekNav = weekNav;
 window.renderAll = renderAll;
 window.plannerMiniNav = plannerMiniNav;
+window.plannerDayNav = plannerDayNav;
 window.plannerGoToday = plannerGoToday;
 window.plannerPickDate = plannerPickDate;
 window.openPlannerAdd = openPlannerAdd;
