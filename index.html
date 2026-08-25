@@ -238,8 +238,6 @@
   .type-pill.sel { background: var(--surface2); border-color: var(--text); color: var(--text); }
   .custom-type-input { margin-top: 6px; display: none; }
   .custom-type-input.show { display: block; }
-  .add-group-tile { position: absolute; background: none; border: 2px dashed var(--border); border-radius: var(--radius); width: 200px; height: 80px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text3); font-size: 13px; font-family: var(--font); transition: all 0.15s; }
-  .add-group-tile:hover { border-color: var(--text3); color: var(--text2); background: var(--surface); }
   .color-swatches { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .color-swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.12s; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -833,18 +831,11 @@ function renderBoard() {
   const state = getState();
   if (!state.categories) return;
   const inner = document.getElementById('canvas-inner');
-  inner.querySelectorAll('.class-group, .add-group-tile').forEach(el => el.remove());
+  inner.querySelectorAll('.class-group').forEach(el => el.remove());
 
   updateUrgentBar(state);
 
   state.categories.forEach(cat => renderGroup(cat, inner, state));
-
-  const tile = document.createElement('button');
-  tile.className = 'add-group-tile';
-  tile.textContent = '+ Add category';
-  tile.style.left = '1160px'; tile.style.top = '20px';
-  tile.onclick = () => openCategoryModal(null);
-  inner.appendChild(tile);
 
   // groups have no max size, so grow the canvas to keep every edge reachable
   let maxR = 0, maxB = 0;
