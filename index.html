@@ -807,7 +807,7 @@ function switchView(v) {
   if (v === 'calendar') renderCalendar();
   if (v === 'matrix') renderMatrix();
   if (v === 'grades') renderGrades();
-  if (v === 'planner') { ensurePlannerCategory(); renderPlannerView(); }
+  if (v === 'planner') renderPlannerView();
 }
 
 // ── BOARD ────────────────────────────────────────────────────────────────────
@@ -1807,9 +1807,14 @@ function renderPlannerDay() {
 }
 
 function openPlannerAdd(prefillTime) {
-  ensurePlannerCategory();
-  const ds = dstr(plannerSelectedDate);
-  openAddTask('planner', ds, prefillTime||'');
+  const state = getState();
+  const cats = state.categories || [];
+  // Prefer a Daily Planner category if one exists, otherwise just file it under
+  // the first category — you can change it in the dropdown. Only conjure a new
+  // category when the board has none at all, so deleting it actually sticks.
+  let catId = cats.find(c => c.id === 'planner')?.id || cats[0]?.id;
+  if (!catId) { ensurePlannerCategory(); catId = 'planner'; }
+  openAddTask(catId, dstr(plannerSelectedDate), prefillTime || '');
 }
 
 // ── ICS ──────────────────────────────────────────────────────────────────────
