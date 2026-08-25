@@ -5,15 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Board</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  // applied before first paint so the page never flashes light then dark
+  (function(){
+    try {
+      var t = localStorage.getItem('board-theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      if (t === 'dark') document.documentElement.setAttribute('data-theme','dark');
+    } catch(e) {}
+  })();
+</script>
 <style>
   :root {
+    color-scheme: light;
     --bg: #f5f4f1; --surface: #ffffff; --surface2: #f0efe9;
     --border: #e2e0d8; --text: #1a1916; --text2: #6b6960; --text3: #a8a49c;
-    --red: #c0392b; --red-bg: #fdf0ee;
+    --red: #c0392b; --red-bg: #fdf0ee; --red-border: #f5c5c0;
     --yellow: #c67c00; --yellow-bg: #fdf8ee;
     --green: #2d7a4f; --green-bg: #eef8f2;
     --blue: #1a56a0;
+    --accent-fg: #ffffff;      /* text/icons sitting on a --text coloured fill */
+    --today-bg: #f0f4ff;
+    --shadow: rgba(0,0,0,0.08);
     --radius: 10px; --font: 'DM Sans', sans-serif; --mono: 'DM Mono', monospace;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #15151a; --surface: #1e1e24; --surface2: #26262e;
+    --border: #34343e; --text: #eceae6; --text2: #a5a29b; --text3: #6f6c67;
+    --red: #ff6f5e; --red-bg: #33201d; --red-border: #5a2f28;
+    --yellow: #e3a33a; --yellow-bg: #2f2717;
+    --green: #4ec185; --green-bg: #16291f;
+    --blue: #6ea6f2;
+    --accent-fg: #15151a;
+    --today-bg: #1b2436;
+    --shadow: rgba(0,0,0,0.5);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; overflow: hidden; }
@@ -28,7 +54,7 @@
   .spacer { flex: 1; }
   .topbar-btn { padding: 6px 12px; border-radius: 7px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-family: var(--font); transition: all 0.15s; white-space: nowrap; }
   .topbar-btn:hover { background: var(--surface2); color: var(--text); }
-  .topbar-btn.primary { background: var(--text); color: #fff; border-color: var(--text); }
+  .topbar-btn.primary { background: var(--text); color: var(--accent-fg); border-color: var(--text); }
   .topbar-btn.primary:hover { opacity: 0.85; }
   .sync-status { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 5px; }
   .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); }
@@ -45,15 +71,17 @@
   .google-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); font-size: 14px; font-weight: 500; font-family: var(--font); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: background 0.15s; }
   .google-btn:hover { background: var(--surface2); }
   .google-icon { width: 18px; height: 18px; }
+  .auth-error { display: none; margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: var(--red-bg); border: 1px solid var(--red-border); color: var(--red); font-size: 12px; line-height: 1.45; text-align: left; }
+  .auth-error.show { display: block; }
 
   /* CANVAS */
   #canvas { position: fixed; top: 52px; left: 0; right: 0; bottom: 0; overflow: auto; display: none; }
   #canvas-inner { position: relative; width: 3000px; height: 2000px; }
 
   /* URGENT BAR — sits below topbar, overlay views push down to avoid it */
-  .urgent-bar { position: fixed; top: 52px; left: 0; right: 0; z-index: 250; background: var(--red-bg); border-bottom: 1px solid #f5c5c0; padding: 7px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .urgent-bar { position: fixed; top: 52px; left: 0; right: 0; z-index: 250; background: var(--red-bg); border-bottom: 1px solid var(--red-border); padding: 7px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .urgent-bar-label { font-size: 11px; font-weight: 500; color: var(--red); text-transform: uppercase; letter-spacing: 0.06em; }
-  .urgent-chip { font-size: 11px; padding: 3px 8px; border-radius: 5px; background: #fff; border: 1px solid #f5c5c0; color: var(--red); cursor: pointer; }
+  .urgent-chip { font-size: 11px; padding: 3px 8px; border-radius: 5px; background: var(--surface); border: 1px solid var(--red-border); color: var(--red); cursor: pointer; }
 
   /* GROUP */
   .class-group { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; box-shadow: 0 2px 12px rgba(0,0,0,0.06); min-height: 80px; z-index: 1; }
@@ -91,6 +119,18 @@
   .class-group:hover .rz-se::after { border-color: var(--text3); }
   .collapsed .rz { display: none; }
 
+  /* NOTE REVEAL */
+  .note-toggle { display: flex; align-items: center; gap: 5px; width: 100%; margin-top: 8px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 11px; font-weight: 500; font-family: var(--font); cursor: pointer; transition: all 0.12s; }
+  .note-toggle:hover { border-color: var(--text3); color: var(--text); }
+  .note-caret { margin-left: auto; font-size: 9px; }
+  .note-body { display: none; margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; line-height: 1.45; color: var(--text2); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .note-body.open { display: block; }
+
+  /* TOPBAR ICON BUTTONS (undo / redo / theme) */
+  .icon-btn { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font); transition: all 0.12s; }
+  .icon-btn:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
+  .icon-btn:disabled { opacity: 0.32; cursor: default; }
+
   /* GROUP MENU (sort + columns) */
   .group-menu { position: fixed; z-index: 600; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 34px rgba(0,0,0,0.15); padding: 6px; width: 208px; display: none; }
   .group-menu.open { display: block; }
@@ -102,7 +142,7 @@
   .group-col-btns { display: flex; gap: 6px; padding: 2px 8px 6px; }
   .group-col-btn { flex: 1; padding: 7px 0; border-radius: 6px; border: 1.5px solid var(--border); background: none; font-size: 12px; cursor: pointer; font-family: var(--font); color: var(--text2); }
   .group-col-btn:hover { border-color: var(--text3); color: var(--text); }
-  .group-col-btn.sel { background: var(--text); color: #fff; border-color: var(--text); }
+  .group-col-btn.sel { background: var(--text); color: var(--accent-fg); border-color: var(--text); }
   .group-menu-hint { font-size: 10px; color: var(--text3); padding: 4px 8px 2px; line-height: 1.4; }
 
   /* TASK CARD */
@@ -118,7 +158,7 @@
   .task-card.done-card .task-title { text-decoration: line-through; }
   .task-top { display: flex; align-items: flex-start; gap: 8px; }
   .task-cb { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--border); flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.12s; }
-  .task-cb.checked { background: var(--text); border-color: var(--text); }
+  .task-cb.checked { background: var(--text); border-color: var(--text); color: var(--accent-fg); }
   .task-title { font-size: 13px; line-height: 1.4; flex: 1; padding-right: 46px; }
   .task-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .task-date { font-size: 11px; color: var(--text3); font-family: var(--mono); }
@@ -143,7 +183,7 @@
   .cal-dow { background: var(--surface2); text-align: center; padding: 8px; font-size: 11px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; }
   .cal-cell { background: var(--surface); min-height: 90px; padding: 8px; }
   .cal-cell.other-month { background: var(--surface2); }
-  .cal-cell.today { background: #f0f4ff; }
+  .cal-cell.today { background: var(--today-bg); }
   .cal-day-num { font-size: 12px; font-weight: 500; color: var(--text3); margin-bottom: 4px; font-family: var(--mono); }
   .cal-cell.today .cal-day-num { color: var(--blue); }
   .cal-task-chip { font-size: 10px; padding: 2px 5px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid; }
@@ -187,12 +227,12 @@
   .modal-footer { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
   .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-family: var(--font); transition: all 0.12s; }
   .btn:hover { background: var(--surface2); }
-  .btn.primary { background: var(--text); color: #fff; border-color: var(--text); }
+  .btn.primary { background: var(--text); color: var(--accent-fg); border-color: var(--text); }
   .btn.primary:hover { opacity: 0.85; }
-  .btn.danger { background: var(--red-bg); color: var(--red); border-color: #f5c5c0; }
+  .btn.danger { background: var(--red-bg); color: var(--red); border-color: var(--red-border); }
   .kind-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .kind-pill { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border); background: none; font-size: 12px; font-weight: 500; cursor: pointer; font-family: var(--font); color: var(--text2); transition: all 0.12s; }
-  .kind-pill.sel { background: var(--text); color: #fff; border-color: var(--text); }
+  .kind-pill.sel { background: var(--text); color: var(--accent-fg); border-color: var(--text); }
   .type-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .type-pill { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border); background: none; font-size: 12px; cursor: pointer; font-family: var(--font); color: var(--text2); transition: all 0.12s; }
   .type-pill.sel { background: var(--surface2); border-color: var(--text); color: var(--text); }
@@ -210,7 +250,7 @@
   /* CALENDAR V2 */
   .cal-view-switcher { display:flex; gap:6px; margin-bottom:14px; align-items:center; }
   .cal-sub-tab { padding:5px 14px; border-radius:7px; border:1px solid var(--border); background:var(--surface); font-size:12px; font-weight:500; cursor:pointer; font-family:var(--font); color:var(--text2); transition:all 0.12s; }
-  .cal-sub-tab.active { background:var(--text); color:#fff; border-color:var(--text); }
+  .cal-sub-tab.active { background:var(--text); color:var(--accent-fg); border-color:var(--text); }
   .cal-today-btn { padding:5px 12px; border-radius:7px; border:1px solid var(--border); background:var(--surface); font-size:12px; cursor:pointer; font-family:var(--font); color:var(--text2); margin-left:auto; transition:all 0.12s; }
   .cal-today-btn:hover { background:var(--surface2); }
   .cal-scroll-wrap { overflow-y:auto; height:calc(100vh - 152px); padding-right:2px; }
@@ -232,9 +272,9 @@
   .planner-minical-cell:hover { background:var(--surface2); }
   .planner-minical-cell.other-month { color:var(--text3); }
   .planner-minical-cell.today { color:var(--blue); font-weight:500; }
-  .planner-minical-cell.selected { background:var(--text); color:#fff; }
+  .planner-minical-cell.selected { background:var(--text); color:var(--accent-fg); }
   .planner-minical-dot { position:absolute; bottom:2px; left:50%; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; background:var(--blue); }
-  .planner-minical-cell.selected .planner-minical-dot { background:#fff; }
+  .planner-minical-cell.selected .planner-minical-dot { background:var(--accent-fg); }
   .planner-main { flex:1; display:flex; flex-direction:column; min-width:0; }
   .planner-day-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-shrink:0; }
   .planner-day-title { font-size:18px; font-weight:500; }
@@ -250,6 +290,7 @@
   .planner-block-cb { width:13px; height:13px; border-radius:4px; border:1.5px solid currentColor; opacity:0.5; flex-shrink:0; margin-top:1px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:opacity 0.12s; }
   .planner-block-cb:hover { opacity:1; }
   .planner-block-cb.checked { background:currentColor; opacity:0.85; }
+  .planner-block-cb.checked polyline { stroke: var(--surface); }
   .planner-block-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .planner-block.done-block { opacity:0.55; }
   .planner-block.done-block .planner-block-text { text-decoration:line-through; }
@@ -267,6 +308,7 @@
       <svg class="google-icon" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
       Continue with Google
     </button>
+    <div class="auth-error" id="auth-error"></div>
   </div>
 </div>
 
@@ -281,7 +323,11 @@
     <button class="view-tab" onclick="switchView('matrix')">Matrix</button>
     <button class="view-tab" onclick="switchView('grades')">Grades</button>
   </div>
+  <div class="topbar-dot"></div>
+  <button class="icon-btn" id="undo-btn" onclick="undo()" title="Undo (Ctrl+Z)" disabled>↶</button>
+  <button class="icon-btn" id="redo-btn" onclick="redo()" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
   <div class="spacer"></div>
+  <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle dark mode">🌙</button>
   <div class="sync-status"><div class="sync-dot synced" id="sync-dot"></div><span id="sync-label">Saved</span></div>
   <button class="topbar-btn" onclick="exportICS()">Export .ics</button>
   <button class="topbar-btn" onclick="openCategoryModal(null)">+ Category</button>
@@ -450,7 +496,7 @@
 <!-- FIREBASE -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -467,32 +513,111 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const DEFAULT_STATE = {
-  categories: [
-    { id:'lang',  name:'AP Lang',    color:'#2563eb', kind:'class',   x:20,  y:20,  w:260, trackGrades:true },
-    { id:'apush', name:'APUSH',      color:'#d97706', kind:'class',   x:300, y:20,  w:260, trackGrades:true },
-    { id:'esp',   name:'AP Español', color:'#dc2626', kind:'class',   x:580, y:20,  w:260, trackGrades:true },
-    { id:'pcal',  name:'Pre-Cal',    color:'#16a34a', kind:'class',   x:860, y:20,  w:260, trackGrades:true },
-    { id:'theo',  name:'Theology',   color:'#7c3aed', kind:'class',   x:20,  y:440, w:260, trackGrades:true },
-    { id:'phys',  name:'AP Physics', color:'#db2777', kind:'class',   x:300, y:440, w:260, trackGrades:true },
-    { id:'robo',  name:'Robotics',   color:'#0891b2', kind:'class',   x:580, y:440, w:260, trackGrades:true },
-    { id:'gen',   name:'General',    color:'#64748b', kind:'general', x:860, y:440, w:260, trackGrades:false },
-  ],
-  tasks: [],
-  collapsed: {},
-  grades: {}
-};
+// Starter board for brand-new accounts: a short walkthrough plus a few realistic
+// examples. Built fresh each time so the demo dates are always relative to today.
+function freshState() {
+  const iso = (offset = 0) => {
+    const x = new Date(); x.setDate(x.getDate() + offset);
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+  };
+  const T = (id, catId, title, extra = {}) => ({ id, catId, title, done:false, type:'Task', ...extra });
 
-let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  return {
+    categories: [
+      // 'Start Here' is pinned to manual order so the walkthrough stays in sequence
+      { id:'start',   name:'Start Here',    color:'#2563eb', kind:'general',  kindLabel:'General',  x:20,  y:20,  w:340, h:470, trackGrades:false, sortMode:'manual', cols:1 },
+      { id:'gen',     name:'General',       color:'#64748b', kind:'general',  kindLabel:'General',  x:380, y:20,  w:300, h:470, trackGrades:false },
+      { id:'planner', name:'Daily Planner', color:'#0d9488', kind:'personal', kindLabel:'Personal', x:700, y:20,  w:300, h:225, trackGrades:false },
+      { id:'class1',  name:'Example Class', color:'#d97706', kind:'class',    kindLabel:'Class',    x:700, y:265, w:300, h:225, trackGrades:true },
+    ],
+    tasks: [
+      // ── the walkthrough ──
+      T('w1','start','👋 Tick this box to finish a task', { order:0,
+        notes:'Completed tasks fade, get crossed out, and drop to the bottom. A "Clear completed" bar then appears so you can sweep them away.' }),
+      T('w2','start','✋ Drag a task to reorder it', { order:1,
+        notes:'Drag any card up or down to rearrange it. Doing that switches the category to Manual order — this one is already set that way, which is why these steps stay in sequence.' }),
+      T('w3','start','⋯ Open the category menu', { order:2,
+        notes:'The ⋯ button in a category header sorts tasks by Manual order, Date, or Importance — and lays them out in 1, 2, or 3 side-by-side columns.' }),
+      T('w4','start','🔴 Priorities surface urgent work', { order:3, priority:'red',
+        notes:'Pick a priority when you add or edit a task. Red ones get pinned to the Urgent bar across the top of the screen — that is why this task is up there now.' }),
+      T('w5','start','📝 Notes hide behind this button', { order:4,
+        notes:'Only tasks that actually have a note show this button, so its presence tells you there is extra detail worth opening. Click it again to collapse.' }),
+      T('w6','start','🖐 Move and resize this category', { order:5,
+        notes:'Drag the header to move a category anywhere on the board. Drag any edge or corner to resize it — there is no maximum size, so spread out as much as you like.' }),
+      T('w7','start','↶ Undo absolutely anything', { order:6,
+        notes:'The ↶ and ↷ buttons in the top bar undo and redo every change: adding, deleting, moving, resizing, reordering, sorting. Ctrl+Z and Ctrl+Shift+Z work too.' }),
+      T('w8','start','🌙 Switch to dark mode', { order:7,
+        notes:'The moon button in the top bar flips between light and dark, and remembers your choice. Delete these walkthrough tasks whenever you are ready to start fresh.' }),
+      T('w9','start','✅ A finished task looks like this', { order:8, done:true,
+        notes:'Untick it to bring it back to the top of the list.' }),
+
+      // ── everyday examples ──
+      T('g1','gen','2:30 meeting', { type:'Meeting', dueDate:iso(0), dueTime:'14:30', priority:'yellow', quadrant:'q1',
+        notes:'Anything with a date AND a time lands on the Calendar and in the Daily Planner at that exact hour. This one is today at 2:30pm — open the Planner tab to see it.' }),
+      T('g2','gen','Pick up groceries', { type:'Errand', dueDate:iso(1), quadrant:'q3' }),
+      T('g3','gen','Book a dentist appointment', { type:'Appointment', dueDate:iso(5), priority:'green', quadrant:'q2',
+        notes:'This has a date but no time, so it sits in the all-day row above the hourly grid instead of on it.' }),
+      T('g4','gen','Plan a weekend trip', { type:'Goal', quadrant:'q4',
+        notes:'Tasks with no date just live on the board. Give a task an Eisenhower quadrant while editing it and it shows up under the Matrix tab.' }),
+
+      // ── planner examples (today) ──
+      T('p1','planner','Morning review', { dueDate:iso(0), dueTime:'08:00',
+        notes:'In the Planner tab, pick any day on the mini calendar, then click an empty hour to drop a task straight onto that time slot.' }),
+      T('p2','planner','Study block', { type:'Learning', dueDate:iso(0), dueTime:'16:00' }),
+
+      // ── class examples ──
+      T('c1','class1','Read chapter 4', { type:'Reading', dueDate:iso(2), priority:'yellow', quadrant:'q2' }),
+      T('c2','class1','Unit test', { type:'Test / Quiz', dueDate:iso(4), priority:'red', quadrant:'q1',
+        notes:'Categories of kind "Class" offer homework and test types. Tick "Track grades" while editing a category to log scores under the Grades tab.' }),
+    ],
+    collapsed: {},
+    grades: { class1: [ { name:'Practice quiz', score:88, total:100 } ] }
+  };
+}
+
+let state = freshState();
 let currentUser = null;
 let saveTimeout = null;
 let unsubscribe = null;
 
 // expose to window
+function showAuthError(e) {
+  const el = document.getElementById('auth-error');
+  const code = e && e.code || '';
+  const msg = {
+    'auth/unauthorized-domain':
+      'This site’s address isn’t on the app’s allowed list yet, so Google sign-in is blocked. (Owner: add this domain under Firebase → Authentication → Settings → Authorized domains.)',
+    'auth/operation-not-allowed':
+      'Google sign-in isn’t switched on for this app. (Owner: enable the Google provider under Firebase → Authentication → Sign-in method.)',
+    'auth/network-request-failed':
+      'Couldn’t reach the sign-in service. Check your internet connection and try again.',
+    'auth/popup-closed-by-user':
+      'The sign-in window closed before finishing. Give it another go.',
+    'auth/cancelled-popup-request': '',   // harmless: user clicked twice
+  }[code];
+  if (msg === '') { el.classList.remove('show'); return; }
+  el.textContent = msg || ('Sign-in failed' + (code ? ' (' + code + ')' : '') + '. Please try again.');
+  el.classList.add('show');
+  console.error(e);
+}
+
 window.signInWithGoogle = async () => {
+  document.getElementById('auth-error').classList.remove('show');
   const provider = new GoogleAuthProvider();
-  try { await signInWithPopup(auth, provider); } catch(e) { console.error(e); }
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (e) {
+    // Phones and strict browsers often block popups — fall back to a full-page redirect
+    if (['auth/popup-blocked','auth/popup-closed-by-user','auth/cancelled-popup-request',
+         'auth/operation-not-supported-in-this-environment'].includes(e && e.code)) {
+      try { await signInWithRedirect(auth, provider); return; } catch (e2) { showAuthError(e2); return; }
+    }
+    showAuthError(e);
+  }
 };
+
+// completes the redirect flow when the user lands back on the page
+getRedirectResult(auth).catch(showAuthError);
 window.signOut = async () => {
   if (unsubscribe) unsubscribe();
   await fbSignOut(auth);
@@ -511,16 +636,16 @@ async function loadUserData(uid) {
   const snap = await getDoc(ref);
   if (snap.exists()) {
     const data = snap.data();
-    state = data.state || JSON.parse(JSON.stringify(DEFAULT_STATE));
+    state = data.state || freshState();
   } else {
-    state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+    state = freshState();          // brand-new account: seed the walkthrough board
     await setDoc(ref, { state });
   }
   // live sync
   unsubscribe = onSnapshot(ref, (snap) => {
     if (snap.exists() && !saveTimeout) {
       const remote = snap.data().state;
-      if (remote) { state = remote; renderAll(); }
+      if (remote) { state = remote; lastSnapshot = JSON.stringify(state); renderAll(); }
     }
   });
 }
@@ -551,7 +676,23 @@ onAuthStateChanged(auth, async (user) => {
     const name = document.getElementById('user-name');
     if (user.photoURL) { photo.src = user.photoURL; photo.style.display = 'block'; }
     name.textContent = user.displayName?.split(' ')[0] || '';
-    await loadUserData(user.uid);
+    try {
+      await loadUserData(user.uid);
+    } catch (e) {
+      // most likely Firestore security rules denying access — say so instead of
+      // dropping the user on a blank board
+      document.getElementById('auth-screen').style.display = 'flex';
+      document.getElementById('topbar').style.display = 'none';
+      document.getElementById('canvas').style.display = 'none';
+      const el = document.getElementById('auth-error');
+      el.textContent = (e && e.code === 'permission-denied')
+        ? 'Signed in, but this app isn’t allowed to load your data. (Owner: check the Firestore security rules for the users collection.)'
+        : 'Signed in, but your data couldn’t be loaded' + (e && e.code ? ' (' + e.code + ')' : '') + '. Check your connection and reload.';
+      el.classList.add('show');
+      console.error(e);
+      return;
+    }
+    resetHistory();      // start history from the freshly loaded state
     renderAll();
   } else {
     currentUser = null;
@@ -563,7 +704,85 @@ onAuthStateChanged(auth, async (user) => {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function getState() { return state; }
-function save() { saveToFirebase(); }
+
+// ── UNDO / REDO ──────────────────────────────────────────────────────────────
+// Every mutation in the app funnels through save(), so history hooks in there:
+// the snapshot taken before the current change becomes the undo target.
+const HISTORY_LIMIT = 60;
+let undoStack = [], redoStack = [], lastSnapshot = null;
+
+function snap() { return JSON.stringify(state); }
+
+function resetHistory() { undoStack = []; redoStack = []; lastSnapshot = snap(); updateHistoryButtons(); }
+
+function save() {
+  const now = snap();
+  if (lastSnapshot !== null && lastSnapshot !== now) {   // skip no-op saves
+    undoStack.push(lastSnapshot);
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack = [];
+  }
+  lastSnapshot = now;
+  updateHistoryButtons();
+  saveToFirebase();
+}
+
+function applyHistory(from, to) {
+  if (!from.length) return;
+  to.push(snap());
+  const restored = from.pop();
+  state = JSON.parse(restored);
+  lastSnapshot = restored;
+  updateHistoryButtons();
+  saveToFirebase();      // persist, but do not record this as a new edit
+  renderAll();
+}
+function undo() { applyHistory(undoStack, redoStack); }
+function redo() { applyHistory(redoStack, undoStack); }
+
+function updateHistoryButtons() {
+  const u = document.getElementById('undo-btn'), r = document.getElementById('redo-btn');
+  if (u) u.disabled = !undoStack.length;
+  if (r) r.disabled = !redoStack.length;
+}
+
+// ── THEME ────────────────────────────────────────────────────────────────────
+function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+
+function applyTheme(t, persist) {
+  if (t === 'dark') document.documentElement.setAttribute('data-theme','dark');
+  else document.documentElement.removeAttribute('data-theme');
+  const b = document.getElementById('theme-btn');
+  if (b) {
+    b.textContent = t === 'dark' ? '☀️' : '🌙';
+    b.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  if (persist) { try { localStorage.setItem('board-theme', t); } catch(e) {} }
+}
+function toggleTheme() { applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true); }
+applyTheme(currentTheme(), false);   // sync the button icon with what the head script set
+
+// ── NOTES ────────────────────────────────────────────────────────────────────
+const expandedNotes = new Set();     // survives re-renders, not persisted
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+function noteBlock(t) {
+  if (!t.notes) return '';
+  const open = expandedNotes.has(t.id);
+  return `<button class="note-toggle" data-note-btn="${t.id}" onclick="toggleNote('${t.id}',event)">📝 Note<span class="note-caret">${open?'▴':'▾'}</span></button>
+    <div class="note-body${open?' open':''}" data-note-for="${t.id}">${esc(t.notes)}</div>`;
+}
+
+function toggleNote(id, e) {
+  e.stopPropagation();
+  const wasOpen = expandedNotes.has(id);
+  if (wasOpen) expandedNotes.delete(id); else expandedNotes.add(id);
+  document.querySelectorAll(`[data-note-for="${id}"]`).forEach(el => el.classList.toggle('open', !wasOpen));
+  document.querySelectorAll(`[data-note-btn="${id}"] .note-caret`).forEach(el => el.textContent = wasOpen ? '▾' : '▴');
+}
 
 const SWATCHES = ['#2563eb','#d97706','#dc2626','#16a34a','#7c3aed','#db2777','#0891b2','#059669','#9333ea','#ea580c','#64748b','#1a1916'];
 const TYPE_SETS = {
@@ -574,7 +793,7 @@ const TYPE_SETS = {
   reminder: ['Reminder','Appointment','Deadline','Follow-up','Call','Email','Other'],
 };
 const KIND_LABELS = { class:'Class', general:'General', project:'Project', personal:'Personal', reminder:'Reminders' };
-const CHECK_SVG = '<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><polyline points="1,3.5 3.5,6 8,1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHECK_SVG = '<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><polyline points="1,3.5 3.5,6 8,1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // ── VIEW ─────────────────────────────────────────────────────────────────────
 let currentView = 'board';
@@ -826,8 +1045,8 @@ function makeTaskCard(t, cat) {
     <div class="task-meta">
       ${dateStr?`<span class="task-date">${dateStr}</span>`:''}
       ${t.type?`<span class="task-type-badge" style="background:${cat?.color||'#888'}18;color:${cat?.color||'#888'}">${t.type}</span>`:''}
-      ${t.notes?`<span class="task-date" title="${t.notes.replace(/"/g,'&quot;')}">📝</span>`:''}
     </div>
+    ${noteBlock(t)}
     <div class="task-actions">
       <button class="task-action-btn" onclick="duplicateTask('${t.id}')" title="Duplicate">⧉</button>
       <button class="task-action-btn" onclick="openEditTask('${t.id}')" title="Edit">✏️</button>
@@ -1312,7 +1531,7 @@ function renderWeekView() {
     const col = document.createElement('div');
     col.style.cssText = 'flex:1;text-align:center;padding:8px 4px 10px;';
     const dateEl = isToday
-      ? `<div style="font-size:16px;font-weight:500;background:var(--blue);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;margin:2px auto 0;">${day.getDate()}</div>`
+      ? `<div style="font-size:16px;font-weight:500;background:var(--blue);color:var(--accent-fg);border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;margin:2px auto 0;">${day.getDate()}</div>`
       : `<div style="font-size:20px;font-weight:300;color:var(--text);font-family:var(--mono);margin-top:2px;">${day.getDate()}</div>`;
     col.innerHTML = `<div style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em;">${DAY_NAMES[i]}</div>${dateEl}`;
     stickyHdr.appendChild(col);
@@ -1549,6 +1768,7 @@ function renderPlannerDay() {
         <span class="task-title">${t.title}</span>
       </div>
       <div class="task-meta">${t.type?`<span class="task-type-badge" style="background:${cat?.color||'#888'}18;color:${cat?.color||'#888'}">${t.type}</span>`:''}<span class="task-date" style="color:${cat?.color||'#888'}">${cat?.name||''}</span></div>
+      ${noteBlock(t)}
     </div>`;
   }).join('') : '';
 
@@ -1621,6 +1841,12 @@ function renderAll() {
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){['task-modal','cat-modal','grade-modal'].forEach(id=>closeModal(id));closeGroupMenu();}
   if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();openAddTask();}
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  if((e.metaKey||e.ctrlKey)&&!typing){
+    const k=e.key.toLowerCase();
+    if(k==='z'&&!e.shiftKey){e.preventDefault();undo();}
+    else if((k==='z'&&e.shiftKey)||k==='y'){e.preventDefault();redo();}
+  }
 });
 
 // ── expose functions for inline onclick handlers ──────────────────────────────
@@ -1642,6 +1868,10 @@ window.selKind = selKind;
 window.toggleDone = toggleDone;
 window.toggleCollapse = toggleCollapse;
 window.openGroupMenu = openGroupMenu;
+window.undo = undo;
+window.redo = redo;
+window.toggleTheme = toggleTheme;
+window.toggleNote = toggleNote;
 window.duplicateTask = duplicateTask;
 window.deleteTaskById = deleteTaskById;
 window.clearDone = clearDone;
