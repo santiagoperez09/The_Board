@@ -20,10 +20,11 @@
     color-scheme: light;
     --bg: #f5f4f1; --surface: #ffffff; --surface2: #f0efe9;
     --border: #e2e0d8; --text: #1a1916; --text2: #6b6960; --text3: #a8a49c;
-    --red: #c0392b; --red-bg: #fdf0ee; --red-border: #f5c5c0;
-    --yellow: #c67c00; --yellow-bg: #fdf8ee;
-    --green: #2d7a4f; --green-bg: #eef8f2;
+    --red: #c0392b; --red-bg: #fdf0ee; --red-border: #f5c5c0; --red-tint: #c0392b14;
+    --yellow: #c67c00; --yellow-bg: #fdf8ee; --yellow-border: #f0d9a8; --yellow-tint: #c67c0014;
+    --green: #2d7a4f; --green-bg: #eef8f2; --green-border: #bfe3cd; --green-tint: #2d7a4f14;
     --blue: #1a56a0;
+    --grid-line: rgba(0,0,0,0.07);
     --accent-fg: #ffffff;      /* text/icons sitting on a --text coloured fill */
     --today-bg: #f0f4ff;
     --shadow: rgba(0,0,0,0.08);
@@ -33,10 +34,11 @@
     color-scheme: dark;
     --bg: #15151a; --surface: #1e1e24; --surface2: #26262e;
     --border: #34343e; --text: #eceae6; --text2: #a5a29b; --text3: #6f6c67;
-    --red: #ff6f5e; --red-bg: #33201d; --red-border: #5a2f28;
-    --yellow: #e3a33a; --yellow-bg: #2f2717;
-    --green: #4ec185; --green-bg: #16291f;
+    --red: #ff6f5e; --red-bg: #33201d; --red-border: #5a2f28; --red-tint: #ff6f5e1f;
+    --yellow: #e3a33a; --yellow-bg: #2f2717; --yellow-border: #574620; --yellow-tint: #e3a33a1f;
+    --green: #4ec185; --green-bg: #16291f; --green-border: #2a4d38; --green-tint: #4ec1851f;
     --blue: #6ea6f2;
+    --grid-line: rgba(255,255,255,0.06);
     --accent-fg: #15151a;
     --today-bg: #1b2436;
     --shadow: rgba(0,0,0,0.5);
@@ -97,7 +99,19 @@
   .group-count { font-size: 11px; color: var(--text3); font-family: var(--mono); }
   .group-btn { width: 22px; height: 22px; border-radius: 5px; border: none; background: none; color: var(--text3); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .group-btn:hover { background: var(--surface2); color: var(--text2); }
-  .group-tasks { overflow-y: auto; padding: 8px; flex: 1; min-height: 40px; display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; }
+  .group-tasks { overflow-y: auto; padding: 8px; flex: 1; min-height: 40px; display: flex; flex-direction: column; gap: 6px; }
+  .task-section { display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; min-height: 10px; }
+  .sub-header { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); padding: 5px 2px 0; border-top: 1px solid var(--border); margin-top: 2px; }
+  .sub-header:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  .sub-count { margin-left: auto; font-family: var(--mono); }
+
+  /* SNAP GRID */
+  #canvas-inner.grid-on {
+    background-image: linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+                      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: var(--grid-size, 80px) var(--grid-size, 80px);
+  }
+  select.topbar-btn { padding-right: 6px; }
   .group-tasks::-webkit-scrollbar { width: 4px; }
   .group-tasks::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   .collapsed .group-tasks, .collapsed .group-footer { display: none; }
@@ -122,9 +136,34 @@
   /* NOTE REVEAL */
   .note-toggle { display: flex; align-items: center; gap: 5px; width: 100%; margin-top: 8px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 11px; font-weight: 500; font-family: var(--font); cursor: pointer; transition: all 0.12s; }
   .note-toggle:hover { border-color: var(--text3); color: var(--text); }
+  /* the note button picks up the task's priority colour so an urgent note reads as urgent */
+  .priority-red .note-toggle    { background: var(--red-tint);    border-color: var(--red-border);    color: var(--red); }
+  .priority-yellow .note-toggle { background: var(--yellow-tint); border-color: var(--yellow-border); color: var(--yellow); }
+  .priority-green .note-toggle  { background: var(--green-tint);  border-color: var(--green-border);  color: var(--green); }
+  .priority-red .note-toggle:hover    { border-color: var(--red); }
+  .priority-yellow .note-toggle:hover { border-color: var(--yellow); }
+  .priority-green .note-toggle:hover  { border-color: var(--green); }
+  .priority-red .note-body    { border-color: var(--red-border);    background: var(--red-tint); }
+  .priority-yellow .note-body { border-color: var(--yellow-border); background: var(--yellow-tint); }
+  .priority-green .note-body  { border-color: var(--green-border);  background: var(--green-tint); }
   .note-caret { margin-left: auto; font-size: 9px; }
   .note-body { display: none; margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; line-height: 1.45; color: var(--text2); white-space: pre-wrap; overflow-wrap: anywhere; }
   .note-body.open { display: block; }
+
+  /* SUBCATEGORY + GRADE-WEIGHT EDITORS (inside modals) */
+  .editor-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .editor-row .form-input { margin: 0; }
+  .editor-del { width: 26px; height: 26px; flex-shrink: 0; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text3); cursor: pointer; font-size: 12px; line-height: 1; }
+  .editor-del:hover { background: var(--red-bg); color: var(--red); border-color: var(--red-border); }
+  .editor-add { width: 100%; padding: 7px; border: 1.5px dashed var(--border); border-radius: 7px; background: none; color: var(--text3); font-size: 12px; font-family: var(--font); cursor: pointer; margin-top: 2px; }
+  .editor-add:hover { border-color: var(--text3); color: var(--text2); }
+  .editor-empty { font-size: 12px; color: var(--text3); padding: 2px 0 6px; }
+  .gw-pct { width: 74px; flex-shrink: 0; text-align: right; }
+  .gw-total { font-size: 11px; margin-top: 8px; display: flex; justify-content: space-between; color: var(--text2); }
+  .gw-total.bad { color: var(--yellow); }
+  .grade-group-head { display: flex; align-items: baseline; gap: 6px; font-size: 11px; font-weight: 500; color: var(--text2); margin: 12px 0 5px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .grade-group-head:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .grade-group-weight { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text3); }
 
   /* TOPBAR ICON BUTTONS (undo / redo / theme) */
   .icon-btn { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font); transition: all 0.12s; }
@@ -218,6 +257,8 @@
   .form-input:focus { border-color: var(--text3); }
   select.form-input { cursor: pointer; }
   .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .form-hint { font-size: 11px; color: var(--text3); margin: -8px 0 14px; }
+  .form-hint.warn { color: var(--yellow); }
   .priority-btns { display: flex; gap: 6px; }
   .priority-btn { flex: 1; padding: 8px; border-radius: 7px; border: 1.5px solid var(--border); background: none; font-size: 12px; font-weight: 500; cursor: pointer; font-family: var(--font); transition: all 0.12s; }
   .priority-btn.p-none.sel { background: var(--surface2); border-color: var(--text3); color: var(--text); }
@@ -299,6 +340,9 @@
   .planner-block-cb.checked { background:currentColor; opacity:0.85; }
   .planner-block-cb.checked polyline { stroke: var(--surface); }
   .planner-block-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  /* a block with a real duration wraps its label instead of clipping to one line */
+  .planner-block.has-end { align-items:flex-start; }
+  .planner-block.has-end .planner-block-text { white-space:normal; overflow:hidden; }
   .planner-block.done-block { opacity:0.55; }
   .planner-block.done-block .planner-block-text { text-decoration:line-through; }
 </style>
@@ -336,6 +380,12 @@
   <div class="spacer"></div>
   <div class="sync-status"><div class="sync-dot synced" id="sync-dot"></div><span id="sync-label">Saved</span></div>
   <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle dark mode">🌙</button>
+  <select class="topbar-btn" id="grid-select" onchange="setGridSize(this.value)" title="Snap categories to a grid so they line up">
+    <option value="0">Grid: Off</option>
+    <option value="40">Grid: Small</option>
+    <option value="80">Grid: Medium</option>
+    <option value="120">Grid: Large</option>
+  </select>
   <button class="topbar-btn" onclick="exportICS()">Export .ics</button>
   <button class="topbar-btn" onclick="openCategoryModal(null)">+ Category</button>
   <button class="topbar-btn primary" onclick="openAddTask()">+ Task</button>
@@ -415,11 +465,14 @@
   <div class="modal">
     <div class="modal-title" id="modal-title-text">New Task</div>
     <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="f-title" placeholder="e.g. Meet with counselor"></div>
-    <div class="form-row-2" style="grid-template-columns:2fr 1fr 1fr;">
+    <div class="form-row-2" style="grid-template-columns:1.6fr 1.2fr 1fr 1fr;">
       <div><label class="form-label">Category</label><select class="form-input" id="f-class"></select></div>
       <div><label class="form-label">Due Date</label><input class="form-input" type="date" id="f-date"></div>
-      <div><label class="form-label">Time</label><input class="form-input" type="time" id="f-time"></div>
+      <div><label class="form-label">Start</label><input class="form-input" type="time" id="f-time"></div>
+      <div><label class="form-label">End</label><input class="form-input" type="time" id="f-end"></div>
     </div>
+    <div class="form-hint" id="f-end-hint">Add an end time to block out real time on the planner.</div>
+    <div class="form-row" id="f-sub-row"><label class="form-label">Subcategory</label><select class="form-input" id="f-sub"></select></div>
     <div class="form-row"><label class="form-label">Type</label><div class="type-pills" id="type-pills-container"></div><div class="custom-type-input" id="custom-type-wrap"><input class="form-input" id="f-type-custom" placeholder="Type a custom task type..."></div></div>
     <div class="form-row">
       <label class="form-label">Priority</label>
@@ -476,11 +529,22 @@
         <span style="font-size:12px;color:var(--text3);">custom</span>
       </div>
     </div>
+    <div class="form-row">
+      <label class="form-label">Subcategories</label>
+      <div id="sub-list"></div>
+      <button class="editor-add" onclick="addSubcat()">+ Add subcategory</button>
+    </div>
     <div class="form-row" id="cat-show-grades-row">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
-        <input type="checkbox" id="cat-track-grades" style="width:15px;height:15px;cursor:pointer;">
+        <input type="checkbox" id="cat-track-grades" style="width:15px;height:15px;cursor:pointer;" onchange="onTrackGradesToggle()">
         Track grades for this category
       </label>
+    </div>
+    <div class="form-row" id="gw-row" style="display:none;">
+      <label class="form-label">Grade categories &amp; weights</label>
+      <div id="gw-list"></div>
+      <button class="editor-add" onclick="addGradeCat()">+ Add grade category</button>
+      <div class="gw-total" id="gw-total"></div>
     </div>
     <div class="modal-footer">
       <button class="btn danger" id="cat-delete-btn" style="display:none;margin-right:auto;" onclick="deleteCategory()">Delete Category</button>
@@ -495,6 +559,7 @@
   <div class="modal">
     <div class="modal-title" id="grade-modal-title">Add Grade</div>
     <div class="form-row"><label class="form-label">Assignment name</label><input class="form-input" id="gf-name" placeholder="e.g. LAP 4 Test"></div>
+    <div class="form-row" id="gf-cat-row"><label class="form-label">Grade category</label><select class="form-input" id="gf-cat"></select></div>
     <div class="form-row-2">
       <div><label class="form-label">Score earned</label><input class="form-input" type="number" id="gf-score" placeholder="88"></div>
       <div><label class="form-label">Out of</label><input class="form-input" type="number" id="gf-total" placeholder="100"></div>
@@ -848,6 +913,7 @@ function renderBoard() {
   const inner = document.getElementById('canvas-inner');
   inner.querySelectorAll('.class-group').forEach(el => el.remove());
 
+  applyGridToCanvas();
   updateUrgentBar(state);
 
   state.categories.forEach(cat => renderGroup(cat, inner, state));
@@ -860,6 +926,34 @@ function renderBoard() {
   });
   inner.style.width  = Math.max(3000, maxR + 400) + 'px';
   inner.style.height = Math.max(2000, maxB + 400) + 'px';
+}
+
+// ── SNAP GRID ────────────────────────────────────────────────────────────────
+function gridSize() { return Number(getState().gridSize) || 0; }
+function gridSnap(v) { const g = gridSize(); return g ? Math.round(v / g) * g : v; }
+function gridSnapMin(v, min) { const g = gridSize(); return g ? Math.max(min, Math.round(v / g) * g) : Math.max(min, v); }
+
+function applyGridToCanvas() {
+  const inner = document.getElementById('canvas-inner');
+  const g = gridSize();
+  inner.classList.toggle('grid-on', g > 0);
+  inner.style.setProperty('--grid-size', g + 'px');
+  const sel = document.getElementById('grid-select');
+  if (sel) sel.value = String(g);
+}
+
+// Turning the grid on tidies what's already there, which is the whole point of it.
+function setGridSize(v) {
+  const state = getState();
+  state.gridSize = Number(v) || 0;
+  if (state.gridSize) {
+    (state.categories||[]).forEach(c => {
+      c.x = gridSnap(c.x ?? 20); c.y = gridSnap(c.y ?? 20);
+      c.w = gridSnapMin(c.w ?? 260, MIN_GROUP_W);
+      if (c.h) c.h = gridSnapMin(c.h, MIN_GROUP_H);
+    });
+  }
+  save(); renderBoard();
 }
 
 // ── task ordering: manual / date / importance ────────────────────────────────
@@ -909,13 +1003,16 @@ function initTaskReorder(container, cat) {
     });
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging-task');
-      commitTaskOrder(container, cat);
+      commitTaskOrder(container.closest('.group-tasks'), cat);
     });
   });
 
   container.addEventListener('dragover', e => {
-    const dragging = container.querySelector('.dragging-task');
-    if (!dragging) return;                            // ignore drags from other groups
+    // look the card up globally so it can cross between subcategory sections,
+    // but only accept it inside the category it came from
+    const dragging = document.querySelector('.dragging-task');
+    if (!dragging) return;
+    if (dragging.closest('.group-tasks') !== container.closest('.group-tasks')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const after = getDragAfterElement(container, e.clientX, e.clientY, Math.max(1, Math.min(3, cat.cols || 1)));
@@ -925,11 +1022,18 @@ function initTaskReorder(container, cat) {
   container.addEventListener('drop', e => e.preventDefault());
 }
 
-function commitTaskOrder(container, cat) {
+// Walks every section in the category so order is continuous across them, and
+// a card's subcategory follows whichever section it now sits in.
+function commitTaskOrder(groupEl, cat) {
+  if (!groupEl) return;
   const state = getState();
-  [...container.querySelectorAll('.task-card')].forEach((card, i) => {
-    const t = (state.tasks||[]).find(x => x.id === card.dataset.taskId);
-    if (t) t.order = i;
+  let i = 0;
+  groupEl.querySelectorAll('.task-section').forEach(sec => {
+    const sub = sec.dataset.sub || '';
+    sec.querySelectorAll('.task-card').forEach(card => {
+      const t = (state.tasks||[]).find(x => x.id === card.dataset.taskId);
+      if (t) { t.order = i++; if (sub) t.subId = sub; else delete t.subId; }
+    });
   });
   cat.sortMode = 'manual';                            // hand-placing implies manual order
   save();
@@ -1029,9 +1133,34 @@ function renderGroup(cat, container, state) {
 
   const tasksEl = el.querySelector(`#tasks-${cat.id}`);
   const cols = Math.max(1, Math.min(3, cat.cols || 1));
-  tasksEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  sortedTasks.forEach(t => tasksEl.appendChild(makeTaskCard(t, cat)));
-  initTaskReorder(tasksEl, cat);
+  const subs = cat.subs || [];
+
+  // One droppable section per subcategory (plus a leading unassigned one), so a
+  // card dropped into a section joins that subcategory.
+  const sections = [];
+  if (subs.length) {
+    const loose = sortedTasks.filter(t => !t.subId || !subs.find(s => s.id === t.subId));
+    if (loose.length) sections.push({ id:'', label:null, tasks:loose });
+    subs.forEach(s => sections.push({ id:s.id, label:s.name, tasks: sortedTasks.filter(t => t.subId === s.id) }));
+  } else {
+    sections.push({ id:'', label:null, tasks:sortedTasks });
+  }
+
+  sections.forEach(sec => {
+    if (sec.label !== null) {
+      const h = document.createElement('div');
+      h.className = 'sub-header';
+      h.innerHTML = `<span>${sec.label}</span><span class="sub-count">${sec.tasks.filter(t=>!t.done).length}</span>`;
+      tasksEl.appendChild(h);
+    }
+    const box = document.createElement('div');
+    box.className = 'task-section';
+    box.dataset.sub = sec.id;
+    box.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    sec.tasks.forEach(t => box.appendChild(makeTaskCard(t, cat)));
+    tasksEl.appendChild(box);
+    initTaskReorder(box, cat);
+  });
   initGroupDrag(el, el.querySelector('.group-header'), cat);
   el.querySelectorAll('.rz').forEach(h => initGroupResize(el, h, cat, h.dataset.dir));
 }
@@ -1040,7 +1169,7 @@ function makeTaskCard(t, cat) {
   const div = document.createElement('div');
   div.className = `task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}`;
   div.dataset.taskId = t.id;
-  const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + (t.dueTime ? ' · ' + formatTime(t.dueTime) : '') : '';
+  const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + (t.dueTime ? ' · ' + timeRange(t) : '') : '';
   div.innerHTML = `
     <div class="task-top">
       <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">
@@ -1086,8 +1215,8 @@ function initGroupDrag(el, handle, cat) {
     el.classList.add('dragging', 'active'); el.style.zIndex = 500;
     const onMove = ev => {
       if (!dragging) return;
-      cat.x = Math.max(0, startEX + ev.clientX - startMX);
-      cat.y = Math.max(0, startEY + ev.clientY - startMY);
+      cat.x = gridSnap(Math.max(0, startEX + ev.clientX - startMX));
+      cat.y = gridSnap(Math.max(0, startEY + ev.clientY - startMY));
       el.style.left = cat.x+'px'; el.style.top = cat.y+'px';
     };
     const onUp = () => {
@@ -1127,15 +1256,15 @@ function initGroupResize(el, handle, cat, dirs) {
 
     const onMove = ev => {
       const dx = ev.clientX - startX, dy = ev.clientY - startY;
-      if (dirs.includes('e')) cat.w = Math.max(MIN_GROUP_W, startW + dx);
-      if (dirs.includes('s')) cat.h = Math.max(MIN_GROUP_H, startH + dy);
+      if (dirs.includes('e')) cat.w = gridSnapMin(startW + dx, MIN_GROUP_W);
+      if (dirs.includes('s')) cat.h = gridSnapMin(startH + dy, MIN_GROUP_H);
       if (dirs.includes('w')) {
-        cat.x = Math.max(0, Math.min(startL + dx, right - MIN_GROUP_W));
-        cat.w = right - cat.x;
+        cat.x = gridSnap(Math.max(0, Math.min(startL + dx, right - MIN_GROUP_W)));
+        cat.w = Math.max(MIN_GROUP_W, right - cat.x);
       }
       if (dirs.includes('n')) {
-        cat.y = Math.max(0, Math.min(startT + dy, bottom - MIN_GROUP_H));
-        cat.h = bottom - cat.y;
+        cat.y = gridSnap(Math.max(0, Math.min(startT + dy, bottom - MIN_GROUP_H)));
+        cat.h = Math.max(MIN_GROUP_H, bottom - cat.y);
       }
       el.style.width = cat.w+'px';  el.style.height = cat.h+'px';
       el.style.left  = cat.x+'px';  el.style.top    = cat.y+'px';
@@ -1208,10 +1337,26 @@ function populateCatSelect(selectedId) {
     `<option value="${c.id}"${c.id===selectedId?' selected':''}>${c.name}</option>`).join('');
 }
 
+// Subcategory picker follows whichever category is selected; hidden when that
+// category has no subcategories.
+function populateSubSelect(catId, selectedSub) {
+  const state = getState();
+  const cat = (state.categories||[]).find(c => c.id === catId);
+  const subs = cat?.subs || [];
+  const row = document.getElementById('f-sub-row');
+  const sel = document.getElementById('f-sub');
+  row.style.display = subs.length ? 'block' : 'none';
+  sel.innerHTML = `<option value="">— None —</option>` + subs.map(s =>
+    `<option value="${s.id}"${s.id===selectedSub?' selected':''}>${esc(s.name)}</option>`).join('');
+}
+
+['f-time','f-end'].forEach(id => document.getElementById(id).addEventListener('input', updateEndHint));
+
 document.getElementById('f-class').addEventListener('change', function() {
   const types = getTypesForCat(this.value);
   selectedType = types[0];
   renderTypePills(types, selectedType);
+  populateSubSelect(this.value, '');
 });
 
 function openAddTask(catId, prefillDate, prefillTime) {
@@ -1221,6 +1366,8 @@ function openAddTask(catId, prefillDate, prefillTime) {
   document.getElementById('f-title').value = '';
   document.getElementById('f-date').value = prefillDate || '';
   document.getElementById('f-time').value = prefillTime || '';
+  document.getElementById('f-end').value = '';
+  updateEndHint();
   document.getElementById('f-notes').value = '';
   document.getElementById('f-quadrant').value = '';
   selectedPriority = '';
@@ -1231,6 +1378,7 @@ function openAddTask(catId, prefillDate, prefillTime) {
   const types = getTypesForCat(resolvedId);
   selectedType = types[0];
   renderTypePills(types, selectedType);
+  populateSubSelect(resolvedId, '');
   document.getElementById('task-modal').classList.add('open');
   setTimeout(() => document.getElementById('f-title').focus(), 100);
 }
@@ -1245,6 +1393,8 @@ function openEditTask(id) {
   document.getElementById('f-title').value = t.title;
   document.getElementById('f-date').value = t.dueDate||'';
   document.getElementById('f-time').value = t.dueTime||'';
+  document.getElementById('f-end').value = t.endTime||'';
+  updateEndHint();
   document.getElementById('f-notes').value = t.notes||'';
   document.getElementById('f-quadrant').value = t.quadrant||'';
   selectedPriority = t.priority||'';
@@ -1252,6 +1402,7 @@ function openEditTask(id) {
   document.querySelectorAll('.priority-btn').forEach(b => b.classList.toggle('sel', b.dataset.p === selectedPriority));
   populateCatSelect(t.catId);
   renderTypePills(getTypesForCat(t.catId), selectedType);
+  populateSubSelect(t.catId, t.subId||'');
   document.getElementById('task-modal').classList.add('open');
 }
 
@@ -1267,8 +1418,10 @@ function saveTask() {
   const state = getState();
   const data = { title, catId: document.getElementById('f-class').value, type: selectedType,
     dueDate: document.getElementById('f-date').value, dueTime: document.getElementById('f-time').value,
+    endTime: validEnd(document.getElementById('f-time').value, document.getElementById('f-end').value),
     notes: document.getElementById('f-notes').value.trim(),
-    priority: selectedPriority, quadrant: document.getElementById('f-quadrant').value };
+    priority: selectedPriority, quadrant: document.getElementById('f-quadrant').value,
+    subId: document.getElementById('f-sub').value || undefined };
   if (!state.tasks) state.tasks = [];
   if (editingTaskId) {
     Object.assign(state.tasks.find(t=>t.id===editingTaskId), data);
@@ -1286,6 +1439,72 @@ function deleteTask() {
 
 // ── CATEGORY MODAL ───────────────────────────────────────────────────────────
 let editingCatId = null, selectedCatColor = '#64748b', selectedKind = 'class';
+// held as const and refilled in place: the inline oninput handlers in the editor
+// rows resolve these through window, so the reference must never be swapped out
+const editingSubs = [], editingGradeCats = [];
+function setArr(arr, items) { arr.length = 0; (items||[]).forEach(x => arr.push(x)); }
+const DEFAULT_GRADE_CATS = [
+  { id:'major', name:'Major',    pct:50 },
+  { id:'minor', name:'Minor',    pct:30 },
+  { id:'hw',    name:'Homework', pct:20 },
+];
+
+// ── subcategory editor ───────────────────────────────────────────────────────
+function renderSubEditor() {
+  const box = document.getElementById('sub-list');
+  if (!editingSubs.length) { box.innerHTML = `<div class="editor-empty">None yet — tasks sit in one flat list.</div>`; return; }
+  box.innerHTML = editingSubs.map((s,i) => `
+    <div class="editor-row">
+      <input class="form-input" value="${esc(s.name)}" oninput="editingSubs[${i}].name=this.value" placeholder="Subcategory name">
+      <button class="editor-del" onclick="removeSubcat(${i})" title="Remove">✕</button>
+    </div>`).join('');
+}
+function addSubcat() {
+  editingSubs.push({ id: 's' + Date.now() + Math.floor(Math.random()*1000), name: '' });
+  renderSubEditor();
+  const inputs = document.querySelectorAll('#sub-list .form-input');
+  inputs[inputs.length-1]?.focus();
+}
+function removeSubcat(i) { editingSubs.splice(i,1); renderSubEditor(); }
+
+// ── grade weight editor ──────────────────────────────────────────────────────
+function renderGradeCatEditor() {
+  const box = document.getElementById('gw-list');
+  const totalEl = document.getElementById('gw-total');
+  if (!editingGradeCats.length) {
+    box.innerHTML = `<div class="editor-empty">No weighting — all grades count equally.</div>`;
+    totalEl.textContent = '';
+    return;
+  }
+  box.innerHTML = editingGradeCats.map((g,i) => `
+    <div class="editor-row">
+      <input class="form-input" value="${esc(g.name)}" oninput="editingGradeCats[${i}].name=this.value" placeholder="e.g. Major">
+      <input class="form-input gw-pct" type="number" min="0" max="100" value="${g.pct}" oninput="editingGradeCats[${i}].pct=Number(this.value)||0;refreshGwTotal()">
+      <button class="editor-del" onclick="removeGradeCat(${i})" title="Remove">✕</button>
+    </div>`).join('');
+  refreshGwTotal();
+}
+function refreshGwTotal() {
+  const total = editingGradeCats.reduce((s,g)=>s+(Number(g.pct)||0),0);
+  const el = document.getElementById('gw-total');
+  el.innerHTML = `<span>Total</span><span>${total}%</span>`;
+  el.classList.toggle('bad', total !== 100);
+  el.title = total === 100 ? '' : 'Weights are rescaled proportionally if they do not add to 100.';
+}
+function addGradeCat() {
+  editingGradeCats.push({ id:'g'+Date.now()+Math.floor(Math.random()*1000), name:'', pct:0 });
+  renderGradeCatEditor();
+}
+function removeGradeCat(i) { editingGradeCats.splice(i,1); renderGradeCatEditor(); }
+
+function onTrackGradesToggle() {
+  const on = document.getElementById('cat-track-grades').checked;
+  document.getElementById('gw-row').style.display = on ? 'block' : 'none';
+  if (on && !editingGradeCats.length) {
+    setArr(editingGradeCats, JSON.parse(JSON.stringify(DEFAULT_GRADE_CATS)));  // sensible starting split
+    renderGradeCatEditor();
+  }
+}
 
 function buildSwatches(selected) {
   const c = document.getElementById('color-swatches');
@@ -1312,10 +1531,15 @@ function openCategoryModal(catId) {
   document.getElementById('cat-modal-title').textContent = isEdit ? 'Edit Category' : 'New Category';
   document.getElementById('cat-delete-btn').style.display = isEdit ? 'block' : 'none';
   let name='', color='#64748b', kind='general', kindLabel='', trackGrades=false;
+  setArr(editingSubs, []); setArr(editingGradeCats, []);
   if (isEdit) {
     const state = getState();
     const cat = (state.categories||[]).find(c=>c.id===catId);
-    if (cat) { name=cat.name; color=cat.color; kind=cat.kind||'general'; kindLabel=cat.kindLabel||''; trackGrades=cat.trackGrades||false; }
+    if (cat) {
+      name=cat.name; color=cat.color; kind=cat.kind||'general'; kindLabel=cat.kindLabel||''; trackGrades=cat.trackGrades||false;
+      setArr(editingSubs, JSON.parse(JSON.stringify(cat.subs || [])));
+      setArr(editingGradeCats, JSON.parse(JSON.stringify(cat.gradeCats || [])));
+    }
   }
   document.getElementById('cat-name').value = name;
   document.getElementById('cat-color-hex').value = color;
@@ -1331,6 +1555,11 @@ function openCategoryModal(catId) {
   customKindWrap.style.display = selectedKind === 'custom' ? 'block' : 'none';
   if (isCustomKind) document.getElementById('cat-kind-custom').value = kindLabel || kind;
   else document.getElementById('cat-kind-custom').value = '';
+  renderSubEditor();
+  document.getElementById('gw-row').style.display = trackGrades ? 'block' : 'none';
+  // offer the standard split so the weighting is discoverable rather than blank
+  if (trackGrades && !editingGradeCats.length) setArr(editingGradeCats, JSON.parse(JSON.stringify(DEFAULT_GRADE_CATS)));
+  renderGradeCatEditor();
   document.getElementById('cat-modal').classList.add('open');
   setTimeout(() => document.getElementById('cat-name').focus(), 100);
 }
@@ -1349,13 +1578,26 @@ function saveCategory() {
   } else {
     kindLabel = KIND_LABELS[selectedKind] || selectedKind;
   }
+  // drop blank rows the user added but never filled in
+  const subs = editingSubs.filter(s => (s.name||'').trim()).map(s => ({ id:s.id, name:s.name.trim() }));
+  const gradeCats = trackGrades
+    ? editingGradeCats.filter(g => (g.name||'').trim()).map(g => ({ id:g.id, name:g.name.trim(), pct:Number(g.pct)||0 }))
+    : [];
+
   if (editingCatId) {
     const cat = (state.categories||[]).find(c=>c.id===editingCatId);
-    if (cat) { cat.name=name; cat.color=selectedCatColor; cat.kind=finalKind; cat.kindLabel=kindLabel; cat.trackGrades=trackGrades; }
+    if (cat) {
+      cat.name=name; cat.color=selectedCatColor; cat.kind=finalKind; cat.kindLabel=kindLabel; cat.trackGrades=trackGrades;
+      cat.subs = subs; cat.gradeCats = gradeCats;
+      // a task pointing at a deleted subcategory falls back to ungrouped
+      const ids = new Set(subs.map(s=>s.id));
+      (state.tasks||[]).forEach(t => { if (t.catId===cat.id && t.subId && !ids.has(t.subId)) delete t.subId; });
+    }
   } else {
     const id = Date.now().toString();
     if (!state.categories) state.categories = [];
-    state.categories.push({ id, name, color:selectedCatColor, kind:finalKind, kindLabel, trackGrades, x:80+Math.random()*300, y:80+Math.random()*200, w:260 });
+    state.categories.push({ id, name, color:selectedCatColor, kind:finalKind, kindLabel, trackGrades, subs, gradeCats,
+                            x:gridSnap(80+Math.random()*300), y:gridSnap(80+Math.random()*200), w:260 });
     if (!state.grades) state.grades = {};
     state.grades[id] = [];
   }
@@ -1397,6 +1639,63 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const HOURS = Array.from({length:16},(_,i)=>i+7); // 7am–10pm
+
+// ── time ranges ──────────────────────────────────────────────────────────────
+function toMin(t) { if (!t) return null; const [h,m] = t.split(':').map(Number); return h*60 + m; }
+
+// an end time only counts if it actually lands after the start
+function validEnd(start, end) {
+  if (!start || !end) return '';
+  return toMin(end) > toMin(start) ? end : '';
+}
+function taskEnd(t) { return validEnd(t.dueTime, t.endTime); }
+
+function timeRange(t) {
+  if (!t.dueTime) return '';
+  const e = taskEnd(t);
+  return formatTime(t.dueTime) + (e ? '–' + formatTime(e) : '');
+}
+
+function updateEndHint() {
+  const start = document.getElementById('f-time').value;
+  const end   = document.getElementById('f-end').value;
+  const hint  = document.getElementById('f-end-hint');
+  if (end && !start)          { hint.textContent = 'Set a start time too — an end time on its own is ignored.'; hint.className = 'form-hint warn'; }
+  else if (start && end && toMin(end) <= toMin(start)) { hint.textContent = 'End time must be after the start time, so it will be ignored.'; hint.className = 'form-hint warn'; }
+  else if (start && end)      { const d = toMin(end)-toMin(start);
+                                hint.textContent = `Blocks out ${Math.floor(d/60)?Math.floor(d/60)+'h ':''}${d%60?d%60+'m':''}`.trim() + ' on the planner.';
+                                hint.className = 'form-hint'; }
+  else                        { hint.textContent = 'Add an end time to block out real time on the planner.'; hint.className = 'form-hint'; }
+}
+
+// Lays overlapping blocks out side by side: tasks are swept in start order and
+// packed into the first lane whose previous task has already finished.
+function layoutLanes(tasks) {
+  const items = tasks.map(t => {
+    const s = toMin(t.dueTime);
+    const e = taskEnd(t) ? toMin(taskEnd(t)) : s + 30;   // untimed-end blocks get a nominal slot
+    return { t, s, e };
+  }).sort((a,b) => a.s - b.s || a.e - b.e);
+
+  let cluster = [], clusterEnd = -1;
+  const flush = () => {
+    const lanes = [];
+    cluster.forEach(it => {
+      let i = lanes.findIndex(end => end <= it.s);
+      if (i === -1) { i = lanes.length; lanes.push(it.e); } else { lanes[i] = it.e; }
+      it.lane = i;
+    });
+    cluster.forEach(it => { it.lanes = lanes.length; });
+    cluster = [];
+  };
+  items.forEach(it => {
+    if (cluster.length && it.s >= clusterEnd) { flush(); clusterEnd = -1; }
+    cluster.push(it);
+    clusterEnd = Math.max(clusterEnd, it.e);
+  });
+  flush();
+  return items;
+}
 
 function formatTime(t) {
   if (!t) return '';
@@ -1483,7 +1782,7 @@ function renderMonthScroll() {
         chip.style.borderColor = cat?.color||'#888';
         chip.style.background = (cat?.color||'#888')+'18';
         chip.style.color = cat?.color||'#444';
-        chip.textContent = (t.dueTime ? formatTime(t.dueTime)+' · ' : '') + t.title;
+        chip.textContent = (t.dueTime ? timeRange(t)+' · ' : '') + t.title;
         chip.title = t.title;
         chip.onclick = () => openEditTask(t.id);
         cell.appendChild(chip);
@@ -1598,16 +1897,20 @@ function renderWeekView() {
       dayCol.appendChild(slot);
     });
 
-    timedTasks.forEach(t => {
-      const [th, tm] = t.dueTime.split(':').map(Number);
-      if (th < HOURS[0] || th > HOURS[HOURS.length-1]) return;
-      const topPx = ((th - HOURS[0]) + tm/60) * 60;
+    const weekStartMin = HOURS[0] * 60, weekEndMin = (HOURS[HOURS.length-1] + 1) * 60;
+    layoutLanes(timedTasks).forEach(({ t, s, e, lane, lanes }) => {
+      if (s < weekStartMin || s >= weekEndMin) return;
+      const topPx = ((s - weekStartMin) / 60) * 60;
+      const hPx = taskEnd(t) ? Math.max(20, ((Math.min(e, weekEndMin) - s) / 60) * 60) : 28;
       const cat = (state.categories||[]).find(c => c.id===t.catId);
       const ev = document.createElement('div');
       ev.className = 'week-event-block';
-      ev.style.cssText = `top:${topPx}px;min-height:24px;height:28px;background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#444'};`;
-      ev.textContent = formatTime(t.dueTime) + '  ' + t.title;
-      ev.title = t.title;
+      const leftPct = (lane / lanes) * 100, widthPct = (1 / lanes) * 100;
+      ev.style.cssText = `top:${topPx}px;height:${hPx}px;left:calc(2px + (100% - 4px) * ${leftPct/100});` +
+        `width:calc((100% - 4px) * ${widthPct/100} - 1px);right:auto;` +
+        `background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#444'};`;
+      ev.textContent = timeRange(t) + '  ' + t.title;
+      ev.title = timeRange(t) + ' · ' + t.title;
       ev.onclick = () => openEditTask(t.id);
       dayCol.appendChild(ev);
     });
@@ -1647,23 +1950,61 @@ function renderGrades() {
   const grid=document.getElementById('grades-grid'); grid.innerHTML='';
   const tracked=(state.categories||[]).filter(c=>c.trackGrades);
   if(!tracked.length){grid.innerHTML=`<p style="color:var(--text3);font-size:13px;">No grade-tracked categories. Edit a category and enable "Track grades".</p>`;return;}
+  const pctOf = e => (e.score / e.total) * 100;
+  const scoreColor = p => p >= 90 ? 'var(--green)' : p >= 70 ? 'var(--yellow)' : 'var(--red)';
+  const entryRow = (cat, e, i) => `<div class="grade-entry">
+      <span class="grade-entry-name">${esc(e.name)}</span>
+      <span class="grade-entry-score" style="color:${scoreColor(pctOf(e))}">${e.score}/${e.total}</span>
+      <button onclick="deleteGrade('${cat.id}',${i})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;">✕</button>
+    </div>`;
+
   tracked.forEach(cat=>{
     const entries=(state.grades||{})[cat.id]||[];
-    const avg=entries.length?Math.round(entries.reduce((s,e)=>s+(e.score/e.total*100),0)/entries.length):null;
+    const gcs = cat.gradeCats || [];
+    let body = '', avg = null;
+
+    if (gcs.length) {
+      // Weighted: each category averages on its own, then those averages are
+      // combined by weight. Weights are rescaled if they don't total 100, and
+      // a category with no grades yet is skipped rather than counted as zero.
+      let weighted = 0, usedWeight = 0;
+      body = gcs.map(gc => {
+        const es = entries.map((e,i)=>({e,i})).filter(({e}) => (e.gcId || gcs[0].id) === gc.id);
+        if (es.length) {
+          const a = es.reduce((s,{e})=>s+pctOf(e),0) / es.length;
+          weighted += a * (gc.pct||0); usedWeight += (gc.pct||0);
+          return `<div class="grade-group-head">${esc(gc.name)}<span class="grade-group-weight">${gc.pct}% · ${Math.round(a)}%</span></div>`
+               + es.map(({e,i}) => entryRow(cat,e,i)).join('');
+        }
+        return `<div class="grade-group-head">${esc(gc.name)}<span class="grade-group-weight">${gc.pct}% · —</span></div>`
+             + `<div class="editor-empty">No grades yet</div>`;
+      }).join('');
+      if (usedWeight > 0) avg = Math.round(weighted / usedWeight);
+    } else {
+      body = entries.map((e,i)=>entryRow(cat,e,i)).join('');
+      if (entries.length) avg = Math.round(entries.reduce((s,e)=>s+pctOf(e),0)/entries.length);
+    }
+
     const card=document.createElement('div'); card.className='grade-card';
     card.innerHTML=`
-      <div class="grade-card-header"><div class="grade-dot" style="background:${cat.color}"></div><span style="font-size:14px;font-weight:500;">${cat.name}</span></div>
-      <div>${entries.map((e,i)=>`<div class="grade-entry"><span class="grade-entry-name">${e.name}</span><span class="grade-entry-score" style="color:${e.score/e.total>=.9?'var(--green)':e.score/e.total>=.7?'var(--yellow)':'var(--red)'}">${e.score}/${e.total}</span><button onclick="deleteGrade('${cat.id}',${i})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;">✕</button></div>`).join('')}</div>
-      ${avg!==null?`<div class="grade-avg">Average <span>${avg}%</span></div>`:''}
-      <button class="grade-add-btn" onclick="openGradeModal('${cat.id}','${cat.name}')">+ Add grade</button>`;
+      <div class="grade-card-header"><div class="grade-dot" style="background:${cat.color}"></div><span style="font-size:14px;font-weight:500;">${esc(cat.name)}</span></div>
+      <div>${body}</div>
+      ${avg!==null?`<div class="grade-avg">${gcs.length?'Weighted average':'Average'} <span style="color:${scoreColor(avg)}">${avg}%</span></div>`:''}
+      <button class="grade-add-btn" onclick="openGradeModal('${cat.id}')">+ Add grade</button>`;
     grid.appendChild(card);
   });
 }
 
-function openGradeModal(catId, name) {
+function openGradeModal(catId) {
   gradeTarget=catId;
-  document.getElementById('grade-modal-title').textContent=`Add Grade — ${name}`;
+  const state = getState();
+  const cat = (state.categories||[]).find(c=>c.id===catId);
+  document.getElementById('grade-modal-title').textContent=`Add Grade — ${cat?.name||''}`;
   ['gf-name','gf-score','gf-total'].forEach(id=>document.getElementById(id).value='');
+  const gcs = cat?.gradeCats || [];
+  document.getElementById('gf-cat-row').style.display = gcs.length ? 'block' : 'none';
+  document.getElementById('gf-cat').innerHTML = gcs.map(g =>
+    `<option value="${g.id}">${esc(g.name)} — ${g.pct}%</option>`).join('');
   document.getElementById('grade-modal').classList.add('open');
   setTimeout(()=>document.getElementById('gf-name').focus(),100);
 }
@@ -1676,7 +2017,8 @@ function saveGrade() {
   const state=getState();
   if(!state.grades)state.grades={};
   if(!state.grades[gradeTarget])state.grades[gradeTarget]=[];
-  state.grades[gradeTarget].push({name,score,total});
+  const gcId = document.getElementById('gf-cat').value || undefined;
+  state.grades[gradeTarget].push({name,score,total,gcId});
   save(); closeModal('grade-modal'); renderGrades();
 }
 
@@ -1784,6 +2126,11 @@ function renderPlannerDay() {
   timedTasks.forEach(t => {
     const h = Number(t.dueTime.split(':')[0]);
     if (Number.isFinite(h)) { firstH = Math.min(firstH, h); lastH = Math.max(lastH, h); }
+    const e = taskEnd(t);
+    if (e) {                                   // make room for the end of a block too
+      const em = toMin(e), eh = Math.ceil(em/60) - (em % 60 === 0 ? 1 : 0);
+      lastH = Math.max(lastH, eh);
+    }
   });
   const hours = Array.from({length: lastH - firstH + 1}, (_,i) => i + firstH);
 
@@ -1795,7 +2142,7 @@ function renderPlannerDay() {
     return `<div class="task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}" style="cursor:pointer;" onclick="openEditTask('${t.id}')">
       <div class="task-top">
         <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">${t.done?CHECK_SVG:''}</div>
-        ${showTime?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${formatTime(t.dueTime)}</span>`:''}
+        ${showTime?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${timeRange(t)}</span>`:''}
         <span class="task-title">${t.title}</span>
       </div>
       <div class="task-meta">${t.type?`<span class="task-type-badge" style="background:${color}18;color:${color}">${t.type}</span>`:''}<span class="task-date" style="color:${color}">${cat?.name||''}</span></div>
@@ -1824,17 +2171,24 @@ function renderPlannerDay() {
     timeline.appendChild(row);
   });
 
-  timedTasks.forEach(t => {
-    const [th,tm] = t.dueTime.split(':').map(Number);
-    const topPx = ((th - hours[0]) + tm/60) * 56;
+  const gridStart = hours[0] * 60;
+  layoutLanes(timedTasks).forEach(({ t, s, e, lane, lanes }) => {
+    const hasEnd = !!taskEnd(t);
+    const topPx = ((s - gridStart) / 60) * 56;
+    const hPx = hasEnd ? Math.max(22, ((e - s) / 60) * 56) : 28;   // real duration when known
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const block = document.createElement('div');
-    block.className = 'planner-block' + (t.done ? ' done-block' : '');
-    block.style.cssText = `top:${topPx}px;min-height:26px;background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#333'};`;
+    block.className = 'planner-block' + (t.done ? ' done-block' : '') + (hasEnd ? ' has-end' : '');
+    // share the width when blocks overlap so neither is hidden behind the other
+    const leftPct = (lane / lanes) * 100, widthPct = (1 / lanes) * 100;
+    block.style.cssText =
+      `top:${topPx}px;height:${hPx}px;left:calc(60px + (100% - 68px) * ${leftPct/100});` +
+      `width:calc((100% - 68px) * ${widthPct/100} - 2px);right:auto;` +
+      `background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#333'};`;
     block.innerHTML = `
       <span class="planner-block-cb${t.done?' checked':''}" title="${t.done?'Mark not done':'Mark done'}">${t.done?CHECK_SVG:''}</span>
-      <span class="planner-block-text">${formatTime(t.dueTime)}  ${t.title}</span>`;
-    block.title = t.title;
+      <span class="planner-block-text">${timeRange(t)}  ${t.title}</span>`;
+    block.title = timeRange(t) + ' · ' + t.title;
     block.querySelector('.planner-block-cb').onclick = (e) => toggleDone(t.id, e);
     block.onclick = (e) => { e.stopPropagation(); openEditTask(t.id); };
     timeline.appendChild(block);
@@ -1861,7 +2215,19 @@ function exportICS() {
   tasks.forEach(t=>{
     const cat=(state.categories||[]).find(c=>c.id===t.catId);
     const d=t.dueDate.replace(/-/g,'');
-    ics+=`BEGIN:VEVENT\r\nUID:${t.id}@planner\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').split('.')[0]}Z\r\nDTSTART;VALUE=DATE:${d}\r\nDTEND;VALUE=DATE:${d}\r\nSUMMARY:${(cat?.name||'')+': '+t.title}\r\nDESCRIPTION:${(t.notes||'').replace(/\n/g,'\\n')}\r\nEND:VEVENT\r\n`;
+    let startLine, endLine;
+    if (t.dueTime) {
+      // a real timed event, so it lands at the right hour in other calendar apps
+      const hhmm = s => s.replace(':','') + '00';
+      const endMin = taskEnd(t) ? toMin(taskEnd(t)) : toMin(t.dueTime) + 60;   // default 1h
+      const eh = String(Math.floor(endMin/60) % 24).padStart(2,'0'), em = String(endMin%60).padStart(2,'0');
+      startLine = `DTSTART:${d}T${hhmm(t.dueTime)}`;
+      endLine   = `DTEND:${d}T${eh}${em}00`;
+    } else {
+      startLine = `DTSTART;VALUE=DATE:${d}`;
+      endLine   = `DTEND;VALUE=DATE:${d}`;
+    }
+    ics+=`BEGIN:VEVENT\r\nUID:${t.id}@planner\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').split('.')[0]}Z\r\n${startLine}\r\n${endLine}\r\nSUMMARY:${(cat?.name||'')+': '+t.title}\r\nDESCRIPTION:${(t.notes||'').replace(/\n/g,'\\n')}\r\nEND:VEVENT\r\n`;
   });
   ics+=`END:VCALENDAR`;
   const a=document.createElement('a');
@@ -1921,6 +2287,15 @@ window.weekNav = weekNav;
 window.renderAll = renderAll;
 window.plannerMiniNav = plannerMiniNav;
 window.plannerDayNav = plannerDayNav;
+window.setGridSize = setGridSize;
+window.addSubcat = addSubcat;
+window.removeSubcat = removeSubcat;
+window.addGradeCat = addGradeCat;
+window.removeGradeCat = removeGradeCat;
+window.refreshGwTotal = refreshGwTotal;
+window.onTrackGradesToggle = onTrackGradesToggle;
+window.editingSubs = editingSubs;
+window.editingGradeCats = editingGradeCats;
 window.plannerGoToday = plannerGoToday;
 window.plannerPickDate = plannerPickDate;
 window.openPlannerAdd = openPlannerAdd;
