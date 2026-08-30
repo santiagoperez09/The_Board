@@ -101,7 +101,9 @@
   .group-btn:hover { background: var(--surface2); color: var(--text2); }
   .group-tasks { overflow-y: auto; padding: 8px; flex: 1; min-height: 40px; display: flex; flex-direction: column; gap: 6px; }
   .task-section { display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; min-height: 10px; }
-  .sub-header { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); padding: 5px 2px 0; border-top: 1px solid var(--border); margin-top: 2px; }
+  .sub-header { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); padding: 5px 2px 4px; border-top: 1px solid var(--border); margin-top: 2px; cursor: pointer; user-select: none; border-radius: 4px; transition: color 0.12s; }
+  .sub-header:hover { color: var(--text2); }
+  .sub-caret { font-size: 8px; width: 8px; flex-shrink: 0; }
   .sub-header:first-child { border-top: none; margin-top: 0; padding-top: 0; }
   .sub-count { margin-left: auto; font-family: var(--mono); }
 
@@ -1146,13 +1148,21 @@ function renderGroup(cat, container, state) {
     sections.push({ id:'', label:null, tasks:sortedTasks });
   }
 
+  const subCollapsed = state.subCollapsed || {};
   sections.forEach(sec => {
+    // the leading ungrouped section has no header, so nothing to collapse it by
+    const isCollapsed = !!(sec.id && subCollapsed[cat.id + ':' + sec.id]);
     if (sec.label !== null) {
+      const open = sec.tasks.filter(t=>!t.done).length;
       const h = document.createElement('div');
-      h.className = 'sub-header';
-      h.innerHTML = `<span>${sec.label}</span><span class="sub-count">${sec.tasks.filter(t=>!t.done).length}</span>`;
+      h.className = 'sub-header' + (isCollapsed ? ' collapsed' : '');
+      h.title = isCollapsed ? 'Show tasks' : 'Hide tasks';
+      h.innerHTML = `<span class="sub-caret">${isCollapsed?'▸':'▾'}</span><span>${esc(sec.label)}</span>` +
+                    `<span class="sub-count">${isCollapsed && sec.tasks.length ? sec.tasks.length + ' hidden' : open}</span>`;
+      h.onclick = e => toggleSubCollapse(cat.id, sec.id, e);
       tasksEl.appendChild(h);
     }
+    if (isCollapsed) return;
     const box = document.createElement('div');
     box.className = 'task-section';
     box.dataset.sub = sec.id;
@@ -1195,6 +1205,16 @@ function toggleDone(id, e) {
   const state = getState();
   const t = state.tasks.find(t=>t.id===id);
   if (t) { t.done = !t.done; save(); renderAll(); }   // renderAll so the planner updates too
+}
+
+function toggleSubCollapse(catId, subId, e) {
+  e.stopPropagation();
+  const state = getState();
+  if (!state.subCollapsed) state.subCollapsed = {};
+  const key = catId + ':' + subId;
+  if (state.subCollapsed[key]) delete state.subCollapsed[key];
+  else state.subCollapsed[key] = true;
+  save(); renderBoard();
 }
 
 function toggleCollapse(catId, e) {
@@ -1790,6 +1810,16 @@ function renderMonthScroll() {
       grid.appendChild(cell);
     }
 
+    // Fill out the final week. Without these the grid ends mid-row and the bare
+    // slots let the container's border-coloured background show through as blocks.
+    const trailing = (7 - ((first + daysInMonth) % 7)) % 7;
+    for (let j = 1; j <= trailing; j++) {
+      const el = document.createElement('div');
+      el.className = 'cal-cell other-month';
+      el.innerHTML = `<div class="cal-day-num">${j}</div>`;
+      grid.appendChild(el);
+    }
+
     block.appendChild(grid);
     wrap.appendChild(block);
   }
@@ -2273,6 +2303,7 @@ window.selPriority = selPriority;
 window.selKind = selKind;
 window.toggleDone = toggleDone;
 window.toggleCollapse = toggleCollapse;
+window.toggleSubCollapse = toggleSubCollapse;
 window.openGroupMenu = openGroupMenu;
 window.undo = undo;
 window.redo = redo;
