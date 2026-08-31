@@ -25,6 +25,7 @@
     --green: #2d7a4f; --green-bg: #eef8f2; --green-border: #bfe3cd; --green-tint: #2d7a4f14;
     --blue: #1a56a0;
     --grid-line: rgba(0,0,0,0.07);
+    --cal-line: #d3cfc3;       /* calendar rules: must read against white AND --surface2 */
     --accent-fg: #ffffff;      /* text/icons sitting on a --text coloured fill */
     --today-bg: #f0f4ff;
     --shadow: rgba(0,0,0,0.08);
@@ -39,6 +40,7 @@
     --green: #4ec185; --green-bg: #16291f; --green-border: #2a4d38; --green-tint: #4ec1851f;
     --blue: #6ea6f2;
     --grid-line: rgba(255,255,255,0.06);
+    --cal-line: #43434f;
     --accent-fg: #15151a;
     --today-bg: #1b2436;
     --shadow: rgba(0,0,0,0.5);
@@ -220,7 +222,13 @@
   .cal-title { font-size: 18px; font-weight: 500; }
   .cal-nav { width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
   .cal-nav:hover { background: var(--surface2); }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  /* Rules are drawn as real cell borders rather than 1px gaps showing the
+     container background through — a gap in --border is invisible against the
+     shaded other-month fill, and lands on fractional pixels at odd widths. */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; background: var(--surface); border: 1px solid var(--cal-line); border-radius: var(--radius); overflow: hidden; }
+  .cal-dow, .cal-cell { border-right: 1px solid var(--cal-line); border-bottom: 1px solid var(--cal-line); }
+  .cal-grid > :nth-child(7n) { border-right: none; }          /* last column */
+  .cal-grid > :nth-last-child(-n+7) { border-bottom: none; }  /* last row (rows are always complete) */
   .cal-dow { background: var(--surface2); text-align: center; padding: 8px; font-size: 11px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; }
   .cal-cell { background: var(--surface); min-height: 90px; padding: 8px; }
   .cal-cell.other-month { background: var(--surface2); }
