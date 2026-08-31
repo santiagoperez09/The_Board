@@ -704,11 +704,16 @@ window.signOut = async () => {
   location.reload();
 };
 
-function setSyncStatus(s) {
+function setSyncStatus(s, detail) {
   const dot = document.getElementById('sync-dot');
   const label = document.getElementById('sync-label');
   dot.className = 'sync-dot ' + s;
-  label.textContent = s === 'synced' ? 'Saved' : s === 'syncing' ? 'Saving…' : 'Error';
+  label.textContent = s === 'synced' ? 'Saved' : s === 'syncing' ? 'Saving…' : 'Not saved';
+  const wrap = label.parentElement;
+  wrap.title = s === 'error'
+    ? ('Your changes are NOT saved. ' + (detail || '') + '\nThey stay in this tab until it saves or you reload.')
+    : '';
+  wrap.style.color = s === 'error' ? 'var(--red)' : '';
 }
 
 async function loadUserData(uid) {
@@ -736,11 +741,15 @@ function saveToFirebase() {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
     try {
-      await setDoc(doc(db, 'users', currentUser.uid), { state });
+      // The JSON round-trip drops any keys whose value is undefined. Firestore
+      // rejects the whole write if even one exists, which would silently lose
+      // everything typed since the last successful save.
+      const payload = JSON.parse(JSON.stringify(state));
+      await setDoc(doc(db, 'users', currentUser.uid), { state: payload });
       setSyncStatus('synced');
     } catch(e) {
-      setSyncStatus('error');
-      console.error(e);
+      setSyncStatus('error', e && e.message ? e.message : String(e));
+      console.error('Save failed:', e);
     }
     saveTimeout = null;
   }, 800);
@@ -1441,7 +1450,7 @@ function saveTask() {
     endTime: validEnd(document.getElementById('f-time').value, document.getElementById('f-end').value),
     notes: document.getElementById('f-notes').value.trim(),
     priority: selectedPriority, quadrant: document.getElementById('f-quadrant').value,
-    subId: document.getElementById('f-sub').value || undefined };
+    subId: document.getElementById('f-sub').value || '' };   // '' not undefined — Firestore rejects undefined
   if (!state.tasks) state.tasks = [];
   if (editingTaskId) {
     Object.assign(state.tasks.find(t=>t.id===editingTaskId), data);
@@ -2047,7 +2056,7 @@ function saveGrade() {
   const state=getState();
   if(!state.grades)state.grades={};
   if(!state.grades[gradeTarget])state.grades[gradeTarget]=[];
-  const gcId = document.getElementById('gf-cat').value || undefined;
+  const gcId = document.getElementById('gf-cat').value || '';   // '' not undefined — Firestore rejects undefined
   state.grades[gradeTarget].push({name,score,total,gcId});
   save(); closeModal('grade-modal'); renderGrades();
 }
