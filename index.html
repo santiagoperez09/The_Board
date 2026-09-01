@@ -351,6 +351,12 @@
   .planner-block-cb.checked polyline { stroke: var(--surface); }
   .planner-block-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
   /* a block with a real duration wraps its label instead of clipping to one line */
+  /* drag-to-schedule */
+  #planner-allday .task-card { cursor:grab; }
+  #planner-allday .task-card:active { cursor:grabbing; }
+  .planner-timeline.drag-active { outline:2px dashed var(--blue); outline-offset:-2px; border-radius:6px; }
+  .planner-drop-hint { position:absolute; left:60px; right:8px; height:2px; background:var(--blue); z-index:20; pointer-events:none; border-radius:2px; }
+  .planner-drop-hint::after { content:attr(data-time); position:absolute; left:0; top:-9px; font-size:10px; font-family:var(--mono); font-weight:500; background:var(--blue); color:var(--accent-fg); padding:1px 6px; border-radius:4px; white-space:nowrap; }
   .planner-block.has-end { align-items:flex-start; }
   .planner-block.has-end .planner-block-text { white-space:normal; overflow:hidden; }
   .planner-block.done-block { opacity:0.55; }
@@ -2155,6 +2161,55 @@ function renderPlannerMiniCal() {
   }
 }
 
+// ── drag-to-schedule ─────────────────────────────────────────────────────────
+const SLOT_MIN = 30;                 // drops snap to half-hour marks
+let plannerDragTaskId = null;
+
+function hhmmOf(mins) {
+  return String(Math.floor(mins/60)%24).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
+}
+
+// Pointer position on the grid -> a snapped clock time, clamped to the visible day.
+function timeFromY(timeline, clientY, hours) {
+  const y = clientY - timeline.getBoundingClientRect().top;
+  const raw = hours[0]*60 + (y / 56) * 60;
+  const lo = hours[0]*60, hi = (hours[hours.length-1]+1)*60 - SLOT_MIN;
+  return Math.max(lo, Math.min(hi, Math.round(raw / SLOT_MIN) * SLOT_MIN));
+}
+
+function scheduleTaskAt(taskId, mins) {
+  const state = getState();
+  const t = (state.tasks||[]).find(x => x.id === taskId);
+  if (!t) return;
+  // keep the block's length when it's being moved rather than newly scheduled
+  const start = t.dueTime ? toMin(t.dueTime) : null;
+  const end   = taskEnd(t) ? toMin(taskEnd(t)) : null;
+  const dur   = (start !== null && end !== null) ? end - start : null;
+
+  t.dueDate = dstr(plannerSelectedDate);   // dropping on this day also sets the date
+  t.dueTime = hhmmOf(mins);
+  if (dur !== null) t.endTime = hhmmOf(mins + dur);
+  save();
+  renderAll();
+}
+
+function makePlannerDraggable(el, taskId) {
+  el.draggable = true;
+  el.addEventListener('dragstart', e => {
+    plannerDragTaskId = taskId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+    requestAnimationFrame(() => el.classList.add('dragging-task'));
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging-task');
+    plannerDragTaskId = null;
+    const tl = document.getElementById('planner-timeline');
+    tl?.classList.remove('drag-active');
+    tl?.querySelector('.planner-drop-hint')?.style.setProperty('display','none');
+  });
+}
+
 function renderPlannerDay() {
   const state = getState();
   const ds = dstr(plannerSelectedDate);
@@ -2186,7 +2241,7 @@ function renderPlannerDay() {
   const agendaCard = (t, showTime) => {
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const color = cat?.color || '#888';
-    return `<div class="task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}" style="cursor:pointer;" onclick="openEditTask('${t.id}')">
+    return `<div class="task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}" data-task-id="${t.id}" title="Drag onto the schedule to set a time" onclick="openEditTask('${t.id}')">
       <div class="task-top">
         <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">${t.done?CHECK_SVG:''}</div>
         ${showTime?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${timeRange(t)}</span>`:''}
@@ -2201,9 +2256,40 @@ function renderPlannerDay() {
   adWrap.innerHTML =
     (timedTasks.length  ? `<div class="planner-section-label">Scheduled</div>` + timedTasks.map(t => agendaCard(t, true)).join('')  : '') +
     (allDayTasks.length ? `<div class="planner-section-label">All day</div>`   + allDayTasks.map(t => agendaCard(t, false)).join('') : '');
+  adWrap.querySelectorAll('.task-card[data-task-id]').forEach(c => makePlannerDraggable(c, c.dataset.taskId));
 
   const timeline = document.getElementById('planner-timeline');
   timeline.innerHTML = '';
+
+  // drop target: dragging a task onto the grid schedules it at the snapped time
+  const hint = document.createElement('div');
+  hint.className = 'planner-drop-hint';
+  hint.style.display = 'none';
+  timeline.ondragover = e => {
+    if (!plannerDragTaskId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const mins = timeFromY(timeline, e.clientY, hours);
+    timeline.classList.add('drag-active');
+    hint.style.display = 'block';
+    hint.style.top = (((mins - hours[0]*60) / 60) * 56) + 'px';
+    hint.dataset.time = formatTime(hhmmOf(mins));
+  };
+  timeline.ondragleave = e => {
+    if (timeline.contains(e.relatedTarget)) return;
+    timeline.classList.remove('drag-active');
+    hint.style.display = 'none';
+  };
+  timeline.ondrop = e => {
+    if (!plannerDragTaskId) return;
+    e.preventDefault();
+    const id = plannerDragTaskId;
+    plannerDragTaskId = null;
+    timeline.classList.remove('drag-active');
+    hint.style.display = 'none';
+    scheduleTaskAt(id, timeFromY(timeline, e.clientY, hours));
+  };
+
   hours.forEach(h => {
     const row = document.createElement('div');
     row.className = 'planner-hour-row';
@@ -2238,8 +2324,11 @@ function renderPlannerDay() {
     block.title = timeRange(t) + ' · ' + t.title;
     block.querySelector('.planner-block-cb').onclick = (e) => toggleDone(t.id, e);
     block.onclick = (e) => { e.stopPropagation(); openEditTask(t.id); };
+    makePlannerDraggable(block, t.id);      // already-scheduled blocks can be moved too
     timeline.appendChild(block);
   });
+
+  timeline.appendChild(hint);   // last, so the marker paints above every block
 }
 
 function openPlannerAdd(prefillTime) {
