@@ -169,6 +169,15 @@
   .grade-group-head:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   .grade-group-weight { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text3); }
 
+  /* TOAST */
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(14px); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 34px var(--shadow); padding: 11px 14px; font-size: 13px; color: var(--text); z-index: 900; display: flex; align-items: center; gap: 12px; max-width: min(460px, 92vw); opacity: 0; pointer-events: none; transition: opacity 0.18s, transform 0.18s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  .toast-msg { line-height: 1.4; }
+  .toast-btn { padding: 6px 13px; border-radius: 7px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--text); background: var(--text); color: var(--accent-fg); font-family: var(--font); flex-shrink: 0; }
+  .toast-btn:hover { opacity: 0.85; }
+  .toast-x { border: none; background: none; color: var(--text3); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; flex-shrink: 0; }
+  .toast-x:hover { color: var(--text); }
+
   /* TOPBAR ICON BUTTONS (undo / redo / theme) */
   .icon-btn { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font); transition: all 0.12s; }
   .icon-btn:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
@@ -344,6 +353,9 @@
   .planner-hour-label { width:56px; flex-shrink:0; font-size:10px; color:var(--text3); font-family:var(--mono); text-align:right; padding:4px 8px 0 0; }
   .planner-hour-slot { flex:1; position:relative; cursor:pointer; }
   .planner-hour-slot:hover { background:var(--surface2); }
+  .planner-hour-row.off-hours .planner-hour-slot { background:var(--surface2); }
+  .planner-hour-row.off-hours .planner-hour-slot:hover { background:var(--border); }
+  .planner-hour-row.off-hours .planner-hour-label { opacity:0.5; }
   .planner-block { position:absolute; left:60px; right:8px; border-radius:6px; padding:4px 8px; font-size:11px; overflow:hidden; cursor:pointer; z-index:2; line-height:1.35; display:flex; align-items:flex-start; gap:6px; }
   .planner-block-cb { width:13px; height:13px; border-radius:4px; border:1.5px solid currentColor; opacity:0.5; flex-shrink:0; margin-top:1px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:opacity 0.12s; }
   .planner-block-cb:hover { opacity:1; }
@@ -421,6 +433,8 @@
 <div id="canvas"><div id="canvas-inner"></div></div>
 
 <div class="group-menu" id="group-menu"></div>
+
+<div class="toast" id="app-toast" role="status" aria-live="polite"></div>
 
 <div id="planner-view" class="overlay-view">
   <div class="planner-layout">
@@ -718,6 +732,49 @@ window.signOut = async () => {
   location.reload();
 };
 
+// ── TOAST ────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('app-toast').classList.remove('show');
+}
+
+function showToast(msg, opts = {}) {
+  const el = document.getElementById('app-toast');
+  clearTimeout(toastTimer);
+  el.innerHTML = '';
+
+  const span = document.createElement('span');
+  span.className = 'toast-msg';
+  span.textContent = msg;
+  el.appendChild(span);
+
+  if (opts.actionLabel) {
+    const b = document.createElement('button');
+    b.className = 'toast-btn';
+    b.textContent = opts.actionLabel;
+    b.onclick = opts.onAction;
+    el.appendChild(b);
+  }
+  const x = document.createElement('button');
+  x.className = 'toast-x';
+  x.textContent = '✕';
+  x.title = 'Dismiss';
+  x.onclick = hideToast;
+  el.appendChild(x);
+
+  el.classList.add('show');
+  if (opts.autoHideMs) toastTimer = setTimeout(hideToast, opts.autoHideMs);
+}
+
+// Shown only when we genuinely can't merge: someone changed the board elsewhere
+// while this tab still has edits of its own waiting to save.
+function showRemoteConflict() {
+  showToast('This board was just updated in another tab. Reload to see those changes — anything unsaved here will be replaced.',
+    { actionLabel: 'Reload', onAction: () => location.reload() });
+}
+
 function setSyncStatus(s, detail) {
   const dot = document.getElementById('sync-dot');
   const label = document.getElementById('sync-label');
@@ -740,12 +797,20 @@ async function loadUserData(uid) {
     state = freshState();          // brand-new account: seed the walkthrough board
     await setDoc(ref, { state });
   }
-  // live sync
+  // Live sync. Other tabs normally update on their own; the only case we can't
+  // resolve silently is a remote change landing while this tab has edits of its
+  // own still unsaved — replacing state there would throw the user's work away.
   unsubscribe = onSnapshot(ref, (snap) => {
-    if (snap.exists() && !saveTimeout) {
-      const remote = snap.data().state;
-      if (remote) { state = remote; lastSnapshot = JSON.stringify(state); renderAll(); }
-    }
+    if (!snap.exists()) return;
+    const remote = snap.data().state;
+    if (!remote) return;
+    const incoming = JSON.stringify(remote);
+    if (incoming === lastSnapshot) return;          // our own write echoing back
+    if (saveTimeout) { showRemoteConflict(); return; }  // unsaved local edits — ask, don't clobber
+    state = remote;
+    lastSnapshot = incoming;
+    renderAll();
+    showToast('Updated with changes from another tab.', { autoHideMs: 3500 });
   });
 }
 
@@ -2222,19 +2287,9 @@ function renderPlannerDay() {
   const timedTasks = dayTasks.filter(t=>t.dueTime)
                              .sort((a,b) => a.dueTime < b.dueTime ? -1 : a.dueTime > b.dueTime ? 1 : 0);
 
-  // The hourly grid normally runs 7am–10pm, but stretch it to cover anything
-  // scheduled outside that window so a late-night task is never dropped.
-  let firstH = 7, lastH = 22;
-  timedTasks.forEach(t => {
-    const h = Number(t.dueTime.split(':')[0]);
-    if (Number.isFinite(h)) { firstH = Math.min(firstH, h); lastH = Math.max(lastH, h); }
-    const e = taskEnd(t);
-    if (e) {                                   // make room for the end of a block too
-      const em = toMin(e), eh = Math.ceil(em/60) - (em % 60 === 0 ? 1 : 0);
-      lastH = Math.max(lastH, eh);
-    }
-  });
-  const hours = Array.from({length: lastH - firstH + 1}, (_,i) => i + firstH);
+  // The full day, midnight to 11pm. Anything can be scheduled at any hour, and
+  // the overnight rows are tinted so the usual waking hours still stand out.
+  const hours = Array.from({ length: 24 }, (_, i) => i);
 
   // Agenda across the top: every task for the day, so nothing hides further down
   // the scroll. Timed items first in clock order, then the all-day ones.
@@ -2292,7 +2347,8 @@ function renderPlannerDay() {
 
   hours.forEach(h => {
     const row = document.createElement('div');
-    row.className = 'planner-hour-row';
+    // overnight rows are still fully usable, just visually recessed
+    row.className = 'planner-hour-row' + ((h < 7 || h >= 22) ? ' off-hours' : '');
     const lbl = document.createElement('div');
     lbl.className = 'planner-hour-label';
     lbl.textContent = h===0?'12am':h===12?'12pm':h<12?`${h}am`:`${h-12}pm`;
@@ -2410,6 +2466,9 @@ window.selKind = selKind;
 window.toggleDone = toggleDone;
 window.toggleCollapse = toggleCollapse;
 window.toggleSubCollapse = toggleSubCollapse;
+window.showToast = showToast;
+window.hideToast = hideToast;
+window.showRemoteConflict = showRemoteConflict;
 window.openGroupMenu = openGroupMenu;
 window.undo = undo;
 window.redo = redo;
