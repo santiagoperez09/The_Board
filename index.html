@@ -346,6 +346,10 @@
   .planner-section-label { font-size:10px; font-weight:500; color:var(--text3); text-transform:uppercase; letter-spacing:0.06em; margin-top:4px; }
   .planner-section-label:first-child { margin-top:0; }
   .planner-time-chip { font-family:var(--mono); font-size:11px; font-weight:500; padding:1px 7px; border-radius:5px; flex-shrink:0; margin-top:1px; }
+  .planner-overnight-btn { width:100%; margin-bottom:8px; padding:7px; border:1px dashed var(--border); border-radius:8px; background:var(--surface); color:var(--text3); font-size:11px; font-family:var(--font); cursor:pointer; transition:all 0.12s; }
+  .planner-overnight-btn:hover { border-color:var(--text3); color:var(--text2); background:var(--surface2); }
+  .planner-overnight-btn.has-hidden { border-style:solid; border-color:var(--blue); color:var(--blue); }
+  .planner-night-btn { margin-bottom:0; margin-top:8px; }
   .planner-timeline-wrap { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
   .planner-timeline { position:relative; }
   .planner-hour-row { display:flex; border-top:1px solid var(--border); height:56px; }
@@ -356,6 +360,8 @@
   .planner-hour-row.off-hours .planner-hour-slot { background:var(--surface2); }
   .planner-hour-row.off-hours .planner-hour-slot:hover { background:var(--border); }
   .planner-hour-row.off-hours .planner-hour-label { opacity:0.5; }
+  .planner-hour-row { position:relative; }
+  .planner-nextday-tag { position:absolute; left:62px; top:3px; font-size:9px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text3); background:var(--surface); border:1px solid var(--border); padding:1px 6px; border-radius:4px; pointer-events:none; z-index:3; }
   .planner-block { position:absolute; left:60px; right:8px; border-radius:6px; padding:4px 8px; font-size:11px; overflow:hidden; cursor:pointer; z-index:2; line-height:1.35; display:flex; align-items:flex-start; gap:6px; }
   .planner-block-cb { width:13px; height:13px; border-radius:4px; border:1.5px solid currentColor; opacity:0.5; flex-shrink:0; margin-top:1px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:opacity 0.12s; }
   .planner-block-cb:hover { opacity:1; }
@@ -459,9 +465,11 @@
       <div id="planner-allday" class="planner-allday"></div>
     </div>
     <div class="planner-main">
+      <button class="planner-overnight-btn" id="overnight-btn" onclick="toggleMorning()"></button>
       <div class="planner-timeline-wrap">
         <div id="planner-timeline" class="planner-timeline"></div>
       </div>
+      <button class="planner-overnight-btn planner-night-btn" id="night-btn" onclick="toggleNight()"></button>
     </div>
   </div>
 </div>
@@ -1086,12 +1094,16 @@ function getDragAfterElement(container, x, y, cols) {
 function initTaskReorder(container, cat) {
   container.querySelectorAll('.task-card').forEach(card => {
     card.draggable = true;
+    let ended = false;
     card.addEventListener('dragstart', e => {
+      ended = false;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', card.dataset.taskId);
-      requestAnimationFrame(() => card.classList.add('dragging-task'));
+      // guarded so a drag that ends within the same frame can't leave it dimmed
+      requestAnimationFrame(() => { if (!ended) card.classList.add('dragging-task'); });
     });
     card.addEventListener('dragend', () => {
+      ended = true;
       card.classList.remove('dragging-task');
       commitTaskOrder(container.closest('.group-tasks'), cat);
     });
@@ -1778,10 +1790,14 @@ function updateEndHint() {
 
 // Lays overlapping blocks out side by side: tasks are swept in start order and
 // packed into the first lane whose previous task has already finished.
-function layoutLanes(tasks) {
+// `shiftOf` lets a caller push some tasks onto a later part of the axis (the
+// planner uses it for tomorrow's small hours), so overlap is judged on the
+// positions actually drawn rather than on raw clock times.
+function layoutLanes(tasks, shiftOf) {
   const items = tasks.map(t => {
-    const s = toMin(t.dueTime);
-    const e = taskEnd(t) ? toMin(taskEnd(t)) : s + 30;   // untimed-end blocks get a nominal slot
+    const off = shiftOf ? shiftOf(t) : 0;
+    const s = toMin(t.dueTime) + off;
+    const e = (taskEnd(t) ? toMin(taskEnd(t)) : toMin(t.dueTime) + 30) + off;
     return { t, s, e };
   }).sort((a,b) => a.s - b.s || a.e - b.e);
 
@@ -2226,6 +2242,38 @@ function renderPlannerMiniCal() {
   }
 }
 
+// ── the planner's day, on a "virtual hour" axis ──────────────────────────────
+// The grid runs 5am → 11pm, then keeps going into 12am–5am of the *following*
+// morning, so a late night reads as one continuous stretch. Virtual hours 0–23
+// are the selected day; 24–28 are the next day's 12am–4am. This day's own
+// early hours fold away above, behind a button.
+const OVERNIGHT_END = 5;
+let showMorning = (() => { try { return localStorage.getItem('board-morning') === '1'; } catch(e) { return false; } })();
+let showNight   = (() => { try { return localStorage.getItem('board-night')   === '1'; } catch(e) { return false; } })();
+
+function toggleMorning() {
+  showMorning = !showMorning;
+  try { localStorage.setItem('board-morning', showMorning ? '1' : '0'); } catch(e) {}
+  renderPlannerDay();
+}
+function toggleNight() {
+  showNight = !showNight;
+  try { localStorage.setItem('board-night', showNight ? '1' : '0'); } catch(e) {}
+  renderPlannerDay();
+}
+
+const vStartHour = () => showMorning ? 0 : OVERNIGHT_END;   // this day's small hours, above
+const dayEndV    = () => showNight ? 24 + OVERNIGHT_END : 24; // tomorrow's, below
+const vFromDayMin = (day, mins) => day * 24 * 60 + mins;   // -> position on the axis
+const dayOfV  = v => (v >= 24*60 ? 1 : 0);
+const minsOfV = v => v % (24*60);
+
+function plannerDateOffset(n) {
+  const d = new Date(plannerSelectedDate);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
 // ── drag-to-schedule ─────────────────────────────────────────────────────────
 const SLOT_MIN = 30;                 // drops snap to half-hour marks
 let plannerDragTaskId = null;
@@ -2234,15 +2282,15 @@ function hhmmOf(mins) {
   return String(Math.floor(mins/60)%24).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
 }
 
-// Pointer position on the grid -> a snapped clock time, clamped to the visible day.
-function timeFromY(timeline, clientY, hours) {
+// Pointer position on the grid -> a snapped point on the virtual axis.
+function vFromY(timeline, clientY) {
   const y = clientY - timeline.getBoundingClientRect().top;
-  const raw = hours[0]*60 + (y / 56) * 60;
-  const lo = hours[0]*60, hi = (hours[hours.length-1]+1)*60 - SLOT_MIN;
+  const raw = vStartHour()*60 + (y / 56) * 60;
+  const lo = vStartHour()*60, hi = dayEndV()*60 - SLOT_MIN;
   return Math.max(lo, Math.min(hi, Math.round(raw / SLOT_MIN) * SLOT_MIN));
 }
 
-function scheduleTaskAt(taskId, mins) {
+function scheduleTaskAt(taskId, v) {
   const state = getState();
   const t = (state.tasks||[]).find(x => x.id === taskId);
   if (!t) return;
@@ -2251,22 +2299,28 @@ function scheduleTaskAt(taskId, mins) {
   const end   = taskEnd(t) ? toMin(taskEnd(t)) : null;
   const dur   = (start !== null && end !== null) ? end - start : null;
 
-  t.dueDate = dstr(plannerSelectedDate);   // dropping on this day also sets the date
+  const mins = minsOfV(v);
+  t.dueDate = dstr(plannerDateOffset(dayOfV(v)));   // bottom rows belong to the next day
   t.dueTime = hhmmOf(mins);
-  if (dur !== null) t.endTime = hhmmOf(mins + dur);
+  if (dur !== null) t.endTime = hhmmOf((mins + dur) % (24*60));
   save();
   renderAll();
 }
 
 function makePlannerDraggable(el, taskId) {
   el.draggable = true;
+  let ended = false;
   el.addEventListener('dragstart', e => {
     plannerDragTaskId = taskId;
+    ended = false;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
-    requestAnimationFrame(() => el.classList.add('dragging-task'));
+    // deferred a frame so the drag ghost isn't captured faded — but skipped if
+    // the drag already finished, or the card would stay dimmed forever
+    requestAnimationFrame(() => { if (!ended) el.classList.add('dragging-task'); });
   });
   el.addEventListener('dragend', () => {
+    ended = true;
     el.classList.remove('dragging-task');
     plannerDragTaskId = null;
     const tl = document.getElementById('planner-timeline');
@@ -2287,9 +2341,25 @@ function renderPlannerDay() {
   const timedTasks = dayTasks.filter(t=>t.dueTime)
                              .sort((a,b) => a.dueTime < b.dueTime ? -1 : a.dueTime > b.dueTime ? 1 : 0);
 
-  // The full day, midnight to 11pm. Anything can be scheduled at any hour, and
-  // the overnight rows are tinted so the usual waking hours still stand out.
-  const hours = Array.from({ length: 24 }, (_, i) => i);
+  // Tomorrow's small hours hang off the bottom of the grid, so "up until 2am"
+  // reads as part of tonight rather than jumping to another day.
+  const nextDs = dstr(plannerDateOffset(1));
+  const nextEarly = (state.tasks||[])
+    .filter(t => t.dueDate === nextDs && t.dueTime && toMin(t.dueTime) < OVERNIGHT_END*60)
+    .sort((a,b) => a.dueTime < b.dueTime ? -1 : 1);
+
+  const hiddenEarly = timedTasks.filter(t => toMin(t.dueTime) < OVERNIGHT_END * 60).length;
+  const ob = document.getElementById('overnight-btn');
+  ob.textContent = showMorning
+    ? '▴  Hide morning hours (12am – 5am)'
+    : '▾  Show morning hours (12am – 5am)' + (hiddenEarly ? `  ·  ${hiddenEarly} scheduled` : '');
+  ob.classList.toggle('has-hidden', !showMorning && hiddenEarly > 0);
+
+  const nb = document.getElementById('night-btn');
+  nb.textContent = showNight
+    ? '▴  Hide late night hours (12am – 4am)'
+    : '▾  Show late night hours (12am – 4am)' + (nextEarly.length ? `  ·  ${nextEarly.length} scheduled` : '');
+  nb.classList.toggle('has-hidden', !showNight && nextEarly.length > 0);
 
   // Agenda across the top: every task for the day, so nothing hides further down
   // the scroll. Timed items first in clock order, then the all-day ones.
@@ -2310,7 +2380,8 @@ function renderPlannerDay() {
   const adWrap = document.getElementById('planner-allday');
   adWrap.innerHTML =
     (timedTasks.length  ? `<div class="planner-section-label">Scheduled</div>` + timedTasks.map(t => agendaCard(t, true)).join('')  : '') +
-    (allDayTasks.length ? `<div class="planner-section-label">All day</div>`   + allDayTasks.map(t => agendaCard(t, false)).join('') : '');
+    (allDayTasks.length ? `<div class="planner-section-label">All day</div>`   + allDayTasks.map(t => agendaCard(t, false)).join('') : '') +
+    (nextEarly.length   ? `<div class="planner-section-label">After midnight</div>` + nextEarly.map(t => agendaCard(t, true)).join('') : '');
   adWrap.querySelectorAll('.task-card[data-task-id]').forEach(c => makePlannerDraggable(c, c.dataset.taskId));
 
   const timeline = document.getElementById('planner-timeline');
@@ -2324,11 +2395,11 @@ function renderPlannerDay() {
     if (!plannerDragTaskId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    const mins = timeFromY(timeline, e.clientY, hours);
+    const v = vFromY(timeline, e.clientY);
     timeline.classList.add('drag-active');
     hint.style.display = 'block';
-    hint.style.top = (((mins - hours[0]*60) / 60) * 56) + 'px';
-    hint.dataset.time = formatTime(hhmmOf(mins));
+    hint.style.top = (((v - vStartHour()*60) / 60) * 56) + 'px';
+    hint.dataset.time = formatTime(hhmmOf(minsOfV(v))) + (dayOfV(v) ? ' · next morning' : '');
   };
   timeline.ondragleave = e => {
     if (timeline.contains(e.relatedTarget)) return;
@@ -2342,26 +2413,35 @@ function renderPlannerDay() {
     plannerDragTaskId = null;
     timeline.classList.remove('drag-active');
     hint.style.display = 'none';
-    scheduleTaskAt(id, timeFromY(timeline, e.clientY, hours));
+    scheduleTaskAt(id, vFromY(timeline, e.clientY));
   };
 
-  hours.forEach(h => {
+  const hourLabel = h => h===0?'12am':h===12?'12pm':h<12?`${h}am`:`${h-12}pm`;
+  for (let v = vStartHour(); v < dayEndV(); v++) {
+    const day = v >= 24 ? 1 : 0, h = v % 24;
     const row = document.createElement('div');
-    // overnight rows are still fully usable, just visually recessed
-    row.className = 'planner-hour-row' + ((h < 7 || h >= 22) ? ' off-hours' : '');
+    // recessed: this day's small hours at the top, and tomorrow's at the bottom
+    row.className = 'planner-hour-row' + ((day === 1 || h < OVERNIGHT_END) ? ' off-hours' : '');
     const lbl = document.createElement('div');
     lbl.className = 'planner-hour-label';
-    lbl.textContent = h===0?'12am':h===12?'12pm':h<12?`${h}am`:`${h-12}pm`;
+    lbl.textContent = hourLabel(h);
     row.appendChild(lbl);
     const slot = document.createElement('div');
     slot.className = 'planner-hour-slot';
-    slot.onclick = () => openPlannerAdd(`${String(h).padStart(2,'0')}:00`);
+    slot.onclick = () => openPlannerAdd(`${String(h).padStart(2,'0')}:00`, day);
     row.appendChild(slot);
+    if (day === 1 && h === 0) {
+      const tag = document.createElement('span');
+      tag.className = 'planner-nextday-tag';
+      tag.textContent = plannerDateOffset(1).toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'});
+      row.appendChild(tag);
+    }
     timeline.appendChild(row);
-  });
+  }
 
-  const gridStart = hours[0] * 60;
-  layoutLanes(timedTasks).forEach(({ t, s, e, lane, lanes }) => {
+  const gridStart = vStartHour() * 60;
+  const onGrid = showNight ? [...timedTasks, ...nextEarly] : timedTasks;
+  layoutLanes(onGrid, t => t.dueDate === nextDs ? 24*60 : 0).forEach(({ t, s, e, lane, lanes }) => {
     const hasEnd = !!taskEnd(t);
     const topPx = ((s - gridStart) / 60) * 56;
     const hPx = hasEnd ? Math.max(22, ((e - s) / 60) * 56) : 28;   // real duration when known
@@ -2373,7 +2453,10 @@ function renderPlannerDay() {
     block.style.cssText =
       `top:${topPx}px;height:${hPx}px;left:calc(60px + (100% - 68px) * ${leftPct/100});` +
       `width:calc((100% - 68px) * ${widthPct/100} - 2px);right:auto;` +
-      `background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#333'};`;
+      // tint layered over an opaque base, so a block looks the same on a shaded
+      // overnight row as it does on a normal one
+      `background:linear-gradient(${(cat?.color||'#888')}22,${(cat?.color||'#888')}22),var(--surface);` +
+      `border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#333'};`;
     block.innerHTML = `
       <span class="planner-block-cb${t.done?' checked':''}" title="${t.done?'Mark not done':'Mark done'}">${t.done?CHECK_SVG:''}</span>
       <span class="planner-block-text">${timeRange(t)}  ${t.title}</span>`;
@@ -2387,7 +2470,7 @@ function renderPlannerDay() {
   timeline.appendChild(hint);   // last, so the marker paints above every block
 }
 
-function openPlannerAdd(prefillTime) {
+function openPlannerAdd(prefillTime, dayOffset) {
   const state = getState();
   const cats = state.categories || [];
   // Prefer a Daily Planner category if one exists, otherwise just file it under
@@ -2395,7 +2478,7 @@ function openPlannerAdd(prefillTime) {
   // category when the board has none at all, so deleting it actually sticks.
   let catId = cats.find(c => c.id === 'planner')?.id || cats[0]?.id;
   if (!catId) { ensurePlannerCategory(); catId = 'planner'; }
-  openAddTask(catId, dstr(plannerSelectedDate), prefillTime || '');
+  openAddTask(catId, dstr(plannerDateOffset(dayOffset || 0)), prefillTime || '');
 }
 
 // ── ICS ──────────────────────────────────────────────────────────────────────
@@ -2469,6 +2552,8 @@ window.toggleSubCollapse = toggleSubCollapse;
 window.showToast = showToast;
 window.hideToast = hideToast;
 window.showRemoteConflict = showRemoteConflict;
+window.toggleMorning = toggleMorning;
+window.toggleNight = toggleNight;
 window.openGroupMenu = openGroupMenu;
 window.undo = undo;
 window.redo = redo;
