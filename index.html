@@ -1009,12 +1009,26 @@ function renderBoard() {
   const state = getState();
   if (!state.categories) return;
   const inner = document.getElementById('canvas-inner');
+
+  // Every render rebuilds the task lists from scratch, which would snap each one
+  // back to the top. Remember how far each was scrolled and put it back, so
+  // deleting or ticking a task leaves you where you were looking.
+  const scrollMemo = {};
+  inner.querySelectorAll('.group-tasks').forEach(el => {
+    if (el.scrollTop) scrollMemo[el.id] = el.scrollTop;
+  });
+
   inner.querySelectorAll('.class-group').forEach(el => el.remove());
 
   applyGridToCanvas();
   updateUrgentBar(state);
 
   state.categories.forEach(cat => renderGroup(cat, inner, state));
+
+  for (const id in scrollMemo) {
+    const el = document.getElementById(id);
+    if (el) el.scrollTop = scrollMemo[id];   // browser clamps if the list got shorter
+  }
 
   // groups have no max size, so grow the canvas to keep every edge reachable
   let maxR = 0, maxB = 0;
