@@ -215,6 +215,9 @@
   .task-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .task-date { font-size: 11px; color: var(--text3); font-family: var(--mono); }
   .task-type-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .task-overdue { font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 4px; background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); white-space: nowrap; }
+  .task-date.late { color: var(--red); }
+  .cal-task-chip.late { border-left-width: 3px; border-left-color: var(--red) !important; font-weight: 500; }
   .task-actions { display: none; position: absolute; top: 7px; right: 7px; gap: 3px; }
   .task-card:hover .task-actions { display: flex; }
   .task-action-btn { width: 22px; height: 22px; border-radius: 5px; border: none; background: var(--surface2); color: var(--text2); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: background 0.1s; }
@@ -1293,7 +1296,7 @@ function makeTaskCard(t, cat) {
   const div = document.createElement('div');
   div.className = `task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}`;
   div.dataset.taskId = t.id;
-  const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + (t.dueTime ? ' · ' + timeRange(t) : '') : '';
+  const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) + (t.dueTime ? ' · ' + timeRange(t) : '') : '';
   div.innerHTML = `
     <div class="task-top">
       <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">
@@ -1302,7 +1305,8 @@ function makeTaskCard(t, cat) {
       <span class="task-title">${t.title}</span>
     </div>
     <div class="task-meta">
-      ${dateStr?`<span class="task-date">${dateStr}</span>`:''}
+      ${overdueBadge(t)}
+      ${dateStr?`<span class="task-date${isOverdue(t)?' late':''}">${dateStr}</span>`:''}
       ${t.type?`<span class="task-type-badge" style="background:${cat?.color||'#888'}18;color:${cat?.color||'#888'}">${t.type}</span>`:''}
     </div>
     ${noteBlock(t)}
@@ -1784,6 +1788,35 @@ function validEnd(start, end) {
 }
 function taskEnd(t) { return validEnd(t.dueTime, t.endTime); }
 
+// ── overdue ──────────────────────────────────────────────────────────────────
+// Past its due moment and still not done. A task due today with no time isn't
+// late until the day is out; one with an end time counts from that end, so a
+// 2–3pm meeting isn't "overdue" at 2:30 while it's still running.
+function isOverdue(t) {
+  if (!t || t.done || !t.dueDate) return false;
+  const now = new Date();
+  const today = dstr(now);
+  if (t.dueDate < today) return true;
+  if (t.dueDate > today) return false;
+  if (!t.dueTime) return false;
+  return toMin(taskEnd(t) || t.dueTime) < now.getHours()*60 + now.getMinutes();
+}
+
+// "Overdue" on its own once it's a while back; "2d late" while it's still recent.
+function overdueLabel(t) {
+  const due = new Date(t.dueDate + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = Math.round((today - due) / 86400000);
+  if (days <= 0) return 'Overdue';
+  if (days === 1) return '1 day late';
+  if (days < 30) return days + ' days late';
+  return 'Overdue';
+}
+
+function overdueBadge(t) {
+  return isOverdue(t) ? `<span class="task-overdue">${overdueLabel(t)}</span>` : '';
+}
+
 function timeRange(t) {
   if (!t.dueTime) return '';
   const e = taskEnd(t);
@@ -1921,7 +1954,8 @@ function renderMonthScroll() {
         chip.style.background = (cat?.color||'#888')+'18';
         chip.style.color = cat?.color||'#444';
         chip.textContent = (t.dueTime ? timeRange(t)+' · ' : '') + t.title;
-        chip.title = t.title;
+        if (isOverdue(t)) { chip.classList.add('late'); chip.title = 'Overdue — ' + t.title; }
+        else chip.title = t.title;
         chip.onclick = () => openEditTask(t.id);
         cell.appendChild(chip);
       });
@@ -2084,7 +2118,7 @@ function renderMatrix() {
       const cat=(state.categories||[]).find(c=>c.id===t.catId);
       const chip=document.createElement('div');
       chip.style.cssText=`padding:8px 10px;border-radius:7px;margin-bottom:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;`;
-      chip.innerHTML=`<span style="width:8px;height:8px;border-radius:50%;background:${cat?.color||'#888'};flex-shrink:0;display:inline-block;"></span>${t.title}${t.dueDate?`<span style="margin-left:auto;font-size:11px;color:var(--text3);font-family:var(--mono)">${new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>`:''}`;
+      chip.innerHTML=`<span style="width:8px;height:8px;border-radius:50%;background:${cat?.color||'#888'};flex-shrink:0;display:inline-block;"></span>${t.title}${t.dueDate?`<span style="margin-left:auto;font-size:11px;color:var(--text3);font-family:var(--mono)">${new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</span>`:''}`;
       chip.onclick=()=>openEditTask(t.id);
       el.appendChild(chip);
     });
@@ -2386,7 +2420,7 @@ function renderPlannerDay() {
         ${showTime?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${timeRange(t)}</span>`:''}
         <span class="task-title">${t.title}</span>
       </div>
-      <div class="task-meta">${t.type?`<span class="task-type-badge" style="background:${color}18;color:${color}">${t.type}</span>`:''}<span class="task-date" style="color:${color}">${cat?.name||''}</span></div>
+      <div class="task-meta">${overdueBadge(t)}${t.type?`<span class="task-type-badge" style="background:${color}18;color:${color}">${t.type}</span>`:''}<span class="task-date" style="color:${color}">${cat?.name||''}</span></div>
       ${noteBlock(t)}
     </div>`;
   };
@@ -2531,7 +2565,37 @@ function renderAll() {
   if(currentView==='matrix')renderMatrix();
   if(currentView==='grades')renderGrades();
   if(currentView==='planner')renderPlannerView();
+  overdueSignature = currentOverdueSignature();   // what's drawn now matches the clock
 }
+
+// ── keeping "overdue" current without a disruptive redraw ────────────────────
+// Overdue is worked out while a card is drawn, so a deadline passing on an idle
+// page would otherwise go unnoticed until something else triggered a render —
+// the tab left open overnight being the case that actually matters. This ticks
+// once a minute but only redraws when a task has genuinely crossed the line,
+// and never in the middle of a drag or while a dialog is open.
+let overdueSignature = '';
+
+function currentOverdueSignature() {
+  return (getState().tasks || []).filter(isOverdue).map(t => t.id).sort().join(',');
+}
+
+function midInteraction() {
+  return !!document.querySelector('.modal-overlay.open')
+      || !!document.querySelector('.dragging-task')
+      || !!document.querySelector('.class-group.dragging, .class-group.resizing');
+}
+
+function refreshOverdue() {
+  if (!currentUser) return;
+  if (currentOverdueSignature() === overdueSignature) return;  // nothing changed
+  if (midInteraction()) return;                                // retry on the next tick
+  renderAll();
+}
+
+setInterval(refreshOverdue, 60000);
+// a backgrounded tab has its timers throttled, so re-check the moment it returns
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOverdue(); });
 
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){['task-modal','cat-modal','grade-modal'].forEach(id=>closeModal(id));closeGroupMenu();}
