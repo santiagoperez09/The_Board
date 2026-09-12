@@ -217,6 +217,9 @@
   .task-type-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
   .task-overdue { font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 4px; background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); white-space: nowrap; }
   .task-date.late { color: var(--red); }
+  .cal-task-chip[draggable="true"] { cursor: grab; }
+  .cal-task-chip[draggable="true"]:active { cursor: grabbing; }
+  .cal-task-chip.dragging-task { opacity: 0.35; }
   .cal-task-chip.late { border-left-width: 3px; border-left-color: var(--red) !important; font-weight: 500; }
   .task-actions { display: none; position: absolute; top: 7px; right: 7px; gap: 3px; }
   .task-card:hover .task-actions { display: flex; }
@@ -355,7 +358,7 @@
   .planner-night-btn { margin-bottom:0; margin-top:8px; }
   .planner-timeline-wrap { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
   .planner-timeline { position:relative; }
-  .planner-hour-row { display:flex; border-top:1px solid var(--border); height:56px; }
+  .planner-hour-row { display:flex; border-top:1px solid var(--border); }  /* height set from HOUR_PX in JS */
   .planner-hour-row:first-child { border-top:none; }
   .planner-hour-label { width:56px; flex-shrink:0; font-size:10px; color:var(--text3); font-family:var(--mono); text-align:right; padding:4px 8px 0 0; }
   .planner-hour-slot { flex:1; position:relative; cursor:pointer; }
@@ -364,6 +367,10 @@
   .planner-hour-row.off-hours .planner-hour-slot:hover { background:var(--border); }
   .planner-hour-row.off-hours .planner-hour-label { opacity:0.5; }
   .planner-hour-row { position:relative; }
+  /* current-time line, Google Calendar style */
+  .planner-now-line { position:absolute; left:56px; right:0; height:0; border-top:2px solid var(--red); z-index:15; pointer-events:none; }
+  .planner-now-dot { position:absolute; left:-5px; top:-6px; width:10px; height:10px; border-radius:50%; background:var(--red); }
+  .planner-now-time { position:absolute; left:-56px; top:-8px; width:48px; text-align:right; font-size:10px; font-family:var(--mono); font-weight:500; color:var(--red); background:var(--surface); padding-right:3px; }
   .planner-nextday-tag { position:absolute; left:62px; top:3px; font-size:9px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text3); background:var(--surface); border:1px solid var(--border); padding:1px 6px; border-radius:4px; pointer-events:none; z-index:3; }
   .planner-block { position:absolute; left:60px; right:8px; border-radius:6px; padding:4px 8px; font-size:11px; overflow:hidden; cursor:pointer; z-index:2; line-height:1.35; display:flex; align-items:flex-start; gap:6px; }
   .planner-block-cb { width:13px; height:13px; border-radius:4px; border:1.5px solid currentColor; opacity:0.5; flex-shrink:0; margin-top:1px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:opacity 0.12s; }
@@ -983,7 +990,7 @@ function switchView(v) {
     document.getElementById(id+'-view').style.display = v === id ? 'block' : 'none';
   });
   document.querySelectorAll('.view-tab').forEach((t,i) => t.classList.toggle('active', ['board','planner','calendar','matrix','grades'][i] === v));
-  if (v === 'calendar') renderCalendar();
+  if (v === 'calendar') { calJumpToToday = true; renderCalendar(); }
   if (v === 'matrix') renderMatrix();
   if (v === 'grades') renderGrades();
   if (v === 'planner') renderPlannerView();
@@ -1562,7 +1569,10 @@ function saveTask() {
     subId: document.getElementById('f-sub').value || '' };   // '' not undefined — Firestore rejects undefined
   if (!state.tasks) state.tasks = [];
   if (editingTaskId) {
-    Object.assign(state.tasks.find(t=>t.id===editingTaskId), data);
+    const existing = state.tasks.find(t=>t.id===editingTaskId);
+    // a custom calendar position belongs to the day it was arranged on
+    if (existing.dueDate !== data.dueDate) delete existing.calOrder;
+    Object.assign(existing, data);
   } else {
     state.tasks.push({ id: Date.now().toString(), done: false, ...data });
   }
@@ -1881,7 +1891,7 @@ function switchCalView(v) {
   document.querySelectorAll('.cal-sub-tab').forEach((t,i) => t.classList.toggle('active', ['month','week'][i] === v));
   document.getElementById('cal-month-container').style.display = v === 'month' ? 'block' : 'none';
   document.getElementById('cal-week-container').style.display = v === 'week' ? 'block' : 'none';
-  if (v === 'month') renderMonthScroll();
+  if (v === 'month') { calJumpToToday = true; renderMonthScroll(); }
   else renderWeekView();
 }
 
@@ -1902,9 +1912,62 @@ function weekNav(dir) {
   renderWeekView();
 }
 
+// ── calendar: custom order within a day ──────────────────────────────────────
+// Purely cosmetic. Chips in a day can be dragged into any order; it's stored as
+// `calOrder` and never touches a task's date or time. A day nobody has arranged
+// keeps its natural time order, and tasks added to an arranged day later land
+// after the ones already placed.
+let calJumpToToday = true;   // only the first render after opening jumps to this month
+
+function sortForCalendar(tasks) {
+  const time = t => t.dueTime || '99:99';
+  return [...tasks].sort((a,b) =>
+    ((a.calOrder ?? Infinity) - (b.calOrder ?? Infinity)) ||   // Infinity-Infinity is NaN -> falls through
+    (time(a) < time(b) ? -1 : time(a) > time(b) ? 1 : 0));
+}
+
+function initCalendarReorder(cell) {
+  cell.querySelectorAll('.cal-task-chip').forEach(chip => {
+    chip.draggable = true;
+    let ended = false;
+    chip.addEventListener('dragstart', e => {
+      ended = false;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', chip.dataset.taskId);
+      requestAnimationFrame(() => { if (!ended) chip.classList.add('dragging-task'); });
+    });
+    chip.addEventListener('dragend', () => {
+      ended = true;
+      chip.classList.remove('dragging-task');
+      commitCalOrder(cell);
+    });
+  });
+  cell.addEventListener('dragover', e => {
+    const dragging = cell.querySelector('.cal-task-chip.dragging-task');
+    if (!dragging) return;               // reordering stays within the one day
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const after = [...cell.querySelectorAll('.cal-task-chip:not(.dragging-task)')]
+      .find(c => { const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
+    if (after) cell.insertBefore(dragging, after); else cell.appendChild(dragging);
+  });
+  cell.addEventListener('drop', e => e.preventDefault());
+}
+
+function commitCalOrder(cell) {
+  const state = getState();
+  let changed = false;
+  cell.querySelectorAll('.cal-task-chip').forEach((chip, i) => {
+    const t = (state.tasks||[]).find(x => x.id === chip.dataset.taskId);
+    if (t && t.calOrder !== i) { t.calOrder = i; changed = true; }
+  });
+  if (changed) { save(); renderCalendar(); }   // a drop back in place isn't an edit
+}
+
 function renderMonthScroll() {
   const wrap = document.getElementById('cal-month-container');
   if (!wrap) return;
+  const prevScroll = wrap.scrollTop;
   wrap.innerHTML = '';
   const state = getState();
   const today = new Date();
@@ -1944,12 +2007,12 @@ function renderMonthScroll() {
       const cell = document.createElement('div');
       cell.className = 'cal-cell' + (isToday ? ' today' : '');
       cell.innerHTML = `<div class="cal-day-num">${d}</div>`;
-      const dayTasks = (state.tasks||[]).filter(t => t.dueDate===ds && !t.done)
-        .sort((a,b) => (a.dueTime||'99:99') < (b.dueTime||'99:99') ? -1 : 1);
+      const dayTasks = sortForCalendar((state.tasks||[]).filter(t => t.dueDate===ds && !t.done));
       dayTasks.forEach(t => {
         const cat = (state.categories||[]).find(c => c.id===t.catId);
         const chip = document.createElement('div');
         chip.className = 'cal-task-chip';
+        chip.dataset.taskId = t.id;
         chip.style.borderColor = cat?.color||'#888';
         chip.style.background = (cat?.color||'#888')+'18';
         chip.style.color = cat?.color||'#444';
@@ -1959,6 +2022,7 @@ function renderMonthScroll() {
         chip.onclick = () => openEditTask(t.id);
         cell.appendChild(chip);
       });
+      if (dayTasks.length > 1) initCalendarReorder(cell);   // nothing to order with one
       grid.appendChild(cell);
     }
 
@@ -1976,8 +2040,15 @@ function renderMonthScroll() {
     wrap.appendChild(block);
   }
 
-  const cur = document.getElementById('cal-current-month');
-  if (cur) setTimeout(() => cur.scrollIntoView({ behavior: 'instant' }), 0);
+  // Jump to this month only when first opening the calendar. Every other
+  // re-render (editing a task, reordering a day) keeps you where you'd scrolled.
+  if (calJumpToToday) {
+    calJumpToToday = false;
+    const cur = document.getElementById('cal-current-month');
+    if (cur) setTimeout(() => cur.scrollIntoView({ behavior: 'instant' }), 0);
+  } else {
+    wrap.scrollTop = prevScroll;
+  }
 }
 
 function renderWeekView() {
@@ -2296,6 +2367,7 @@ function renderPlannerMiniCal() {
 // are the selected day; 24–28 are the next day's 12am–4am. This day's own
 // early hours fold away above, behind a button.
 const OVERNIGHT_END = 5;
+const HOUR_PX = 64;            // height of one hour on the planner grid — the single source of truth
 let showMorning = (() => { try { return localStorage.getItem('board-morning') === '1'; } catch(e) { return false; } })();
 let showNight   = (() => { try { return localStorage.getItem('board-night')   === '1'; } catch(e) { return false; } })();
 
@@ -2333,7 +2405,7 @@ function hhmmOf(mins) {
 // Pointer position on the grid -> a snapped point on the virtual axis.
 function vFromY(timeline, clientY) {
   const y = clientY - timeline.getBoundingClientRect().top;
-  const raw = vStartHour()*60 + (y / 56) * 60;
+  const raw = vStartHour()*60 + (y / HOUR_PX) * 60;
   const lo = vStartHour()*60, hi = dayEndV()*60 - SLOT_MIN;
   return Math.max(lo, Math.min(hi, Math.round(raw / SLOT_MIN) * SLOT_MIN));
 }
@@ -2348,7 +2420,9 @@ function scheduleTaskAt(taskId, v) {
   const dur   = (start !== null && end !== null) ? end - start : null;
 
   const mins = minsOfV(v);
-  t.dueDate = dstr(plannerDateOffset(dayOfV(v)));   // bottom rows belong to the next day
+  const newDate = dstr(plannerDateOffset(dayOfV(v)));   // bottom rows belong to the next day
+  if (t.dueDate !== newDate) delete t.calOrder;         // its calendar position was for the old day
+  t.dueDate = newDate;
   t.dueTime = hhmmOf(mins);
   if (dur !== null) t.endTime = hhmmOf((mins + dur) % (24*60));
   save();
@@ -2446,7 +2520,7 @@ function renderPlannerDay() {
     const v = vFromY(timeline, e.clientY);
     timeline.classList.add('drag-active');
     hint.style.display = 'block';
-    hint.style.top = (((v - vStartHour()*60) / 60) * 56) + 'px';
+    hint.style.top = (((v - vStartHour()*60) / 60) * HOUR_PX) + 'px';
     hint.dataset.time = formatTime(hhmmOf(minsOfV(v))) + (dayOfV(v) ? ' · next morning' : '');
   };
   timeline.ondragleave = e => {
@@ -2470,6 +2544,7 @@ function renderPlannerDay() {
     const row = document.createElement('div');
     // recessed: this day's small hours at the top, and tomorrow's at the bottom
     row.className = 'planner-hour-row' + ((day === 1 || h < OVERNIGHT_END) ? ' off-hours' : '');
+    row.style.height = HOUR_PX + 'px';
     const lbl = document.createElement('div');
     lbl.className = 'planner-hour-label';
     lbl.textContent = hourLabel(h);
@@ -2491,8 +2566,8 @@ function renderPlannerDay() {
   const onGrid = showNight ? [...timedTasks, ...nextEarly] : timedTasks;
   layoutLanes(onGrid, t => t.dueDate === nextDs ? 24*60 : 0).forEach(({ t, s, e, lane, lanes }) => {
     const hasEnd = !!taskEnd(t);
-    const topPx = ((s - gridStart) / 60) * 56;
-    const hPx = hasEnd ? Math.max(22, ((e - s) / 60) * 56) : 28;   // real duration when known
+    const topPx = ((s - gridStart) / 60) * HOUR_PX;
+    const hPx = hasEnd ? Math.max(22, ((e - s) / 60) * HOUR_PX) : 28;   // real duration when known
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const block = document.createElement('div');
     block.className = 'planner-block' + (t.done ? ' done-block' : '') + (hasEnd ? ' has-end' : '');
@@ -2516,7 +2591,35 @@ function renderPlannerDay() {
   });
 
   timeline.appendChild(hint);   // last, so the marker paints above every block
+  updateNowLine();
 }
+
+// ── current-time line ────────────────────────────────────────────────────────
+// Drawn on today's view, and also on yesterday's while it's still the small
+// hours — "now" then sits in yesterday's late-night tail. Repositioned on a
+// timer without a re-render, so it glides without disturbing anything.
+function updateNowLine() {
+  const timeline = document.getElementById('planner-timeline');
+  if (!timeline) return;
+  let line = timeline.querySelector('.planner-now-line');
+  const now = new Date();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const today = dstr(now);
+  let v = null;
+  if (dstr(plannerSelectedDate) === today) v = nowMin;
+  else if (dstr(plannerDateOffset(1)) === today) v = 24*60 + nowMin;
+  const visible = v !== null && v >= vStartHour()*60 && v < dayEndV()*60;
+  if (!visible) { line?.remove(); return; }
+  if (!line) {
+    line = document.createElement('div');
+    line.className = 'planner-now-line';
+    line.innerHTML = '<span class="planner-now-dot"></span><span class="planner-now-time"></span>';
+  }
+  line.style.top = (((v - vStartHour()*60) / 60) * HOUR_PX) + 'px';
+  line.querySelector('.planner-now-time').textContent = formatTime(hhmmOf(nowMin));
+  timeline.appendChild(line);   // (re)append so it paints above blocks
+}
+setInterval(updateNowLine, 30000);
 
 function openPlannerAdd(prefillTime, dayOffset) {
   const state = getState();
