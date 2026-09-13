@@ -286,8 +286,18 @@
   .cat-select-wrap { position: relative; }
   .cat-select-wrap .form-input { padding-left: 30px; }
   .cat-swatch { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 11px; height: 11px; border-radius: 50%; background: #888; pointer-events: none; box-shadow: 0 0 0 2px var(--surface); }
-  /* the dialog's top edge takes the category colour */
-  #task-modal .modal { border-top: 5px solid var(--modal-accent, var(--border)); }
+  /* Category colour as a rounded rim peeking out behind the white panel. The
+     frame is the coloured layer; the white body sits 5px lower with its own
+     rounded top, so the colour shows as a curved edge above it. The body does
+     the scrolling — but a classic scrollbar is NOT clipped to its own element's
+     rounded corner, and would square off the top-right. So the top 14px (the
+     corner's radius) is a white border: scrollbars always start below borders,
+     which keeps the curve clear on both sides. Top padding shrinks to match. */
+  #task-modal .modal { padding: 0; overflow: hidden; display: flex; flex-direction: column;
+                       background: var(--modal-accent, var(--border)); }
+  #task-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 24px 24px;
+                            margin-top: 5px; background: var(--surface); border-radius: 14px 14px 0 0;
+                            border-top: 14px solid var(--surface); }
   .form-hint { font-size: 11px; color: var(--text3); margin: -8px 0 14px; }
   .form-hint.warn { color: var(--yellow); }
   .priority-btns { display: flex; gap: 6px; }
@@ -399,6 +409,24 @@
   .planner-drop-hint { position:absolute; left:60px; right:8px; height:2px; background:var(--blue); z-index:20; pointer-events:none; border-radius:2px; }
   .planner-drop-hint::after { content:attr(data-time); position:absolute; left:0; top:-9px; font-size:10px; font-family:var(--mono); font-weight:500; background:var(--blue); color:var(--accent-fg); padding:1px 6px; border-radius:4px; white-space:nowrap; }
   .planner-block.has-end { align-items:flex-start; }
+  /* grab strips on a block's top and bottom edge for resizing */
+  .pb-resize { position:absolute; left:0; right:0; height:6px; z-index:4; cursor:ns-resize; }
+  .pb-resize-top { top:0; }
+  .pb-resize-bottom { bottom:0; }
+  .planner-block:hover .pb-resize::after { content:''; position:absolute; left:50%; top:1px; transform:translateX(-50%);
+    width:22px; height:3px; border-radius:2px; background:currentColor; opacity:0.45; }
+  /* While an edge is held the rest of the planner goes inert: hour rows stop
+     lighting up and taking clicks, other blocks stop reacting, and the cursor
+     stays a resize arrow the whole way — so only the block being resized moves. */
+  body.planner-resizing, body.planner-resizing * { cursor: ns-resize !important; user-select: none !important; }
+  body.planner-resizing .planner-hour-slot,
+  body.planner-resizing .planner-block:not(.resizing) { pointer-events: none; }
+  .planner-block.resizing { z-index: 16; box-shadow: 0 4px 14px var(--shadow); }
+  .planner-block.resizing .pb-resize::after { content:''; position:absolute; left:50%; top:1px; transform:translateX(-50%);
+    width:22px; height:3px; border-radius:2px; background:currentColor; opacity:0.45; }
+  .planner-block.resizing .pb-resize-bottom::after { top:auto; bottom:1px; }
+  /* each bar hugs its own edge, so even a 15-minute block keeps its label clear */
+  .planner-block:hover .pb-resize-bottom::after { top:auto; bottom:1px; }
   .planner-block.has-end .planner-block-text { white-space:normal; overflow:hidden; }
   .planner-block.done-block { opacity:0.55; }
   .planner-block.done-block .planner-block-text { text-decoration:line-through; }
@@ -527,6 +555,7 @@
 <!-- TASK MODAL -->
 <div class="modal-overlay" id="task-modal">
   <div class="modal">
+   <div class="modal-body">
     <div class="modal-title" id="modal-title-text">New Task</div>
     <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="f-title" placeholder="e.g. Meet with counselor"></div>
     <div class="form-row-2" style="grid-template-columns:1.3fr 1fr;">
@@ -566,6 +595,7 @@
       <button class="btn" onclick="closeModal('task-modal')">Cancel</button>
       <button class="btn primary" onclick="saveTask()">Save</button>
     </div>
+   </div>
   </div>
 </div>
 
@@ -2428,7 +2458,7 @@ function plannerDateOffset(n) {
 }
 
 // ── drag-to-schedule ─────────────────────────────────────────────────────────
-const SLOT_MIN = 30;                 // drops snap to half-hour marks
+const SLOT_MIN = 15;                 // drops snap to quarter-hour marks
 let plannerDragTaskId = null;
 
 function hhmmOf(mins) {
@@ -2457,7 +2487,9 @@ function scheduleTaskAt(taskId, v) {
   if (t.dueDate !== newDate) delete t.calOrder;         // its calendar position was for the old day
   t.dueDate = newDate;
   t.dueTime = hhmmOf(mins);
-  if (dur !== null) t.endTime = hhmmOf((mins + dur) % (24*60));
+  // a moved block keeps its length; one placed without a length gets 30 minutes.
+  // Capped at 11:59pm rather than wrapping past midnight into an invalid end.
+  t.endTime = hhmmOf(Math.min(mins + (dur !== null ? dur : 30), 24*60 - 1));
   save();
   renderAll();
 }
@@ -2481,6 +2513,63 @@ function makePlannerDraggable(el, taskId) {
     const tl = document.getElementById('planner-timeline');
     tl?.classList.remove('drag-active');
     tl?.querySelector('.planner-drop-hint')?.style.setProperty('display','none');
+  });
+}
+
+// ── resizing blocks from their top or bottom edge ────────────────────────────
+// Top edge moves the start, bottom edge moves the end, in 15-minute steps, never
+// shorter than 15 minutes. Uses plain mouse events rather than the HTML5 drag
+// that moves blocks, so that drag is paused while an edge is held.
+const RESIZE_STEP = 15;
+const MIN_TASK_MIN = 15;
+
+function addResizeHandles(block, t, shift) {
+  ['top', 'bottom'].forEach(edge => {
+    const handle = document.createElement('div');
+    handle.className = 'pb-resize pb-resize-' + edge;
+    handle.title = edge === 'top' ? 'Drag to change the start time' : 'Drag to change the end time';
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault(); e.stopPropagation();
+      block.draggable = false;                              // no move-drag mid-resize
+      block.classList.add('resizing');
+      document.body.classList.add('planner-resizing');      // freeze everything else
+      const pxPerMin  = HOUR_PX / 60;
+      const origStart = toMin(t.dueTime);
+      const origEnd   = taskEnd(t) ? toMin(taskEnd(t)) : origStart + 30;   // a point task reads as 30m
+      const gridStart = vStartHour() * 60;
+      const startY    = e.clientY;
+      const textEl    = block.querySelector('.planner-block-text');
+      let newStart = origStart, newEnd = origEnd;
+
+      const onMove = ev => {
+        const dm = Math.round(((ev.clientY - startY) / pxPerMin) / RESIZE_STEP) * RESIZE_STEP;
+        if (edge === 'top') newStart = Math.max(0, Math.min(origStart + dm, origEnd - MIN_TASK_MIN));
+        else                newEnd   = Math.min(24*60 - 1, Math.max(origEnd + dm, origStart + MIN_TASK_MIN));
+        // live preview only — nothing is saved until the mouse is released
+        const drawS = Math.max(newStart + shift, gridStart);
+        block.style.top    = ((drawS - gridStart) * pxPerMin) + 'px';
+        block.style.height = Math.max(16, (newEnd + shift - drawS) * pxPerMin) + 'px';
+        textEl.textContent = `${formatTime(hhmmOf(newStart))}–${formatTime(hhmmOf(newEnd))}  ${t.title}`;
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        block.draggable = true;
+        block.classList.remove('resizing');
+        document.body.classList.remove('planner-resizing');
+        block.dataset.justResized = '1';                    // swallow the click that follows
+        setTimeout(() => { delete block.dataset.justResized; }, 0);
+        if (newStart === origStart && newEnd === origEnd) return;   // released where it started
+        const task = (getState().tasks||[]).find(x => x.id === t.id);
+        if (!task) return;
+        task.dueTime = hhmmOf(newStart);
+        task.endTime = hhmmOf(newEnd);
+        save(); renderAll();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    block.appendChild(handle);
   });
 }
 
@@ -2628,8 +2717,9 @@ function renderPlannerDay() {
       <span class="planner-block-text">${timeRange(t)}  ${t.title}</span>`;
     block.title = timeRange(t) + ' · ' + t.title;
     block.querySelector('.planner-block-cb').onclick = (e) => toggleDone(t.id, e);
-    block.onclick = (e) => { e.stopPropagation(); openEditTask(t.id); };
+    block.onclick = (e) => { e.stopPropagation(); if (block.dataset.justResized) return; openEditTask(t.id); };
     makePlannerDraggable(block, t.id);      // already-scheduled blocks can be moved too
+    addResizeHandles(block, t, t.dueDate === nextDs ? 24*60 : 0);
     timeline.appendChild(block);
   });
 
@@ -2673,6 +2763,10 @@ function openPlannerAdd(prefillTime, dayOffset) {
   let catId = cats.find(c => c.id === 'planner')?.id || cats[0]?.id;
   if (!catId) { ensurePlannerCategory(); catId = 'planner'; }
   openAddTask(catId, dstr(plannerDateOffset(dayOffset || 0)), prefillTime || '');
+  if (prefillTime) {                   // an hour picked on the planner starts as a 30-minute block
+    document.getElementById('f-end').value = hhmmOf(Math.min(toMin(prefillTime) + 30, 24*60 - 1));
+    updateEndHint();
+  }
 }
 
 // ── ICS ──────────────────────────────────────────────────────────────────────
@@ -2729,7 +2823,8 @@ function currentOverdueSignature() {
 function midInteraction() {
   return !!document.querySelector('.modal-overlay.open')
       || !!document.querySelector('.dragging-task')
-      || !!document.querySelector('.class-group.dragging, .class-group.resizing');
+      || !!document.querySelector('.class-group.dragging, .class-group.resizing')
+      || document.body.classList.contains('planner-resizing');   // don't redraw under a held edge
 }
 
 function refreshOverdue() {
