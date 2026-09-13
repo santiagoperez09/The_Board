@@ -282,6 +282,12 @@
   .form-input:focus { border-color: var(--text3); }
   select.form-input { cursor: pointer; }
   .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .form-row-2 > div { min-width: 0; }   /* lets inputs shrink instead of pushing the dialog wider */
+  .cat-select-wrap { position: relative; }
+  .cat-select-wrap .form-input { padding-left: 30px; }
+  .cat-swatch { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 11px; height: 11px; border-radius: 50%; background: #888; pointer-events: none; box-shadow: 0 0 0 2px var(--surface); }
+  /* the dialog's top edge takes the category colour */
+  #task-modal .modal { border-top: 5px solid var(--modal-accent, var(--border)); }
   .form-hint { font-size: 11px; color: var(--text3); margin: -8px 0 14px; }
   .form-hint.warn { color: var(--yellow); }
   .priority-btns { display: flex; gap: 6px; }
@@ -348,6 +354,13 @@
   .planner-add-btn { width:100%; margin-bottom:12px; }
   .planner-today-tag { display:none; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--blue); background:var(--today-bg); border:1px solid var(--border); padding:2px 7px; border-radius:5px; }
   .planner-today-tag.show { display:inline-block; }
+  .planner-today-btn { width:100%; margin-top:12px; padding:11px 14px; border-radius:9px; border:1.5px solid var(--blue); background:var(--today-bg); color:var(--blue); font-family:var(--font); cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; transition:all 0.12s; }
+  .planner-today-btn:hover { background:var(--blue); color:var(--accent-fg); }
+  .ptb-main { font-size:14px; font-weight:500; }
+  .ptb-date { font-size:12px; font-family:var(--mono); opacity:0.85; }
+  /* already looking at today: still clickable, just quieter */
+  .planner-today-btn.on-today { border-color:var(--border); background:var(--surface); color:var(--text3); }
+  .planner-today-btn.on-today:hover { background:var(--surface2); color:var(--text2); }
   .planner-allday { margin-bottom:10px; display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
   .planner-section-label { font-size:10px; font-weight:500; color:var(--text3); text-transform:uppercase; letter-spacing:0.06em; margin-top:4px; }
   .planner-section-label:first-child { margin-top:0; }
@@ -461,7 +474,10 @@
         <button class="cal-nav" onclick="plannerMiniNav(1)">›</button>
       </div>
       <div class="planner-minical-grid" id="planner-minical-grid"></div>
-      <button class="cal-today-btn" style="width:100%;margin-top:10px;margin-left:0;" onclick="plannerGoToday()">Today</button>
+      <button class="planner-today-btn" id="planner-today-btn" onclick="plannerGoToday()">
+        <span class="ptb-main">📅 Jump to today</span>
+        <span class="ptb-date" id="planner-today-btn-date"></span>
+      </button>
 
       <div class="planner-day-header">
         <div class="planner-day-nav">
@@ -513,9 +529,13 @@
   <div class="modal">
     <div class="modal-title" id="modal-title-text">New Task</div>
     <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="f-title" placeholder="e.g. Meet with counselor"></div>
-    <div class="form-row-2" style="grid-template-columns:1.6fr 1.2fr 1fr 1fr;">
-      <div><label class="form-label">Category</label><select class="form-input" id="f-class"></select></div>
+    <div class="form-row-2" style="grid-template-columns:1.3fr 1fr;">
+      <div><label class="form-label">Category</label>
+        <div class="cat-select-wrap"><span class="cat-swatch" id="f-cat-swatch"></span><select class="form-input" id="f-class"></select></div>
+      </div>
       <div><label class="form-label">Due Date</label><input class="form-input" type="date" id="f-date"></div>
+    </div>
+    <div class="form-row-2" style="grid-template-columns:1fr 1fr;">
       <div><label class="form-label">Start</label><input class="form-input" type="time" id="f-time"></div>
       <div><label class="form-label">End</label><input class="form-input" type="time" id="f-end"></div>
     </div>
@@ -1469,7 +1489,8 @@ function renderTypePills(types, selected) {
   });
   if (isCustom) {
     customWrap.classList.add('show');
-    customInput.value = selected;
+    // 'Custom…_active' only marks the pill as selected — never show it as typed text
+    if (selected !== 'Custom…_active') customInput.value = selected;
   } else if (!document.getElementById('custom-type-wrap').classList.contains('show')) {
     customInput.value = '';
   }
@@ -1480,7 +1501,18 @@ function populateCatSelect(selectedId) {
   const state = getState();
   document.getElementById('f-class').innerHTML = (state.categories||[]).map(c =>
     `<option value="${c.id}"${c.id===selectedId?' selected':''}>${c.name}</option>`).join('');
+  updateCatSwatch();
 }
+
+// Colour the dot beside the category picker and the dialog's top edge, so it's
+// obvious at a glance which category the task belongs to.
+function updateCatSwatch() {
+  const id = document.getElementById('f-class').value;
+  const color = (getState().categories||[]).find(c => c.id === id)?.color || '#888';
+  document.getElementById('f-cat-swatch').style.background = color;
+  document.querySelector('#task-modal .modal').style.setProperty('--modal-accent', color);
+}
+document.getElementById('f-class').addEventListener('change', updateCatSwatch);
 
 // Subcategory picker follows whichever category is selected; hidden when that
 // category has no subcategories.
@@ -2366,7 +2398,8 @@ function renderPlannerMiniCal() {
 // morning, so a late night reads as one continuous stretch. Virtual hours 0–23
 // are the selected day; 24–28 are the next day's 12am–4am. This day's own
 // early hours fold away above, behind a button.
-const OVERNIGHT_END = 5;
+const MORNING_END = 6;   // this day's foldaway early block: 12am–5am, the 5am hour included
+const NIGHT_END   = 5;   // tomorrow's late-night tail below the grid: 12am–4am
 const HOUR_PX = 64;            // height of one hour on the planner grid — the single source of truth
 let showMorning = (() => { try { return localStorage.getItem('board-morning') === '1'; } catch(e) { return false; } })();
 let showNight   = (() => { try { return localStorage.getItem('board-night')   === '1'; } catch(e) { return false; } })();
@@ -2382,8 +2415,8 @@ function toggleNight() {
   renderPlannerDay();
 }
 
-const vStartHour = () => showMorning ? 0 : OVERNIGHT_END;   // this day's small hours, above
-const dayEndV    = () => showNight ? 24 + OVERNIGHT_END : 24; // tomorrow's, below
+const vStartHour = () => showMorning ? 0 : MORNING_END;   // this day's small hours, above
+const dayEndV    = () => showNight ? 24 + NIGHT_END : 24; // tomorrow's, below
 const vFromDayMin = (day, mins) => day * 24 * 60 + mins;   // -> position on the axis
 const dayOfV  = v => (v >= 24*60 ? 1 : 0);
 const minsOfV = v => v % (24*60);
@@ -2455,8 +2488,13 @@ function renderPlannerDay() {
   const state = getState();
   const ds = dstr(plannerSelectedDate);
   document.getElementById('planner-day-title').textContent = plannerSelectedDate.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
-  document.getElementById('planner-today-tag')
-    .classList.toggle('show', dstr(plannerSelectedDate) === dstr(new Date()));
+  const onToday = dstr(plannerSelectedDate) === dstr(new Date());
+  document.getElementById('planner-today-tag').classList.toggle('show', onToday);
+  const tb = document.getElementById('planner-today-btn');
+  tb.classList.toggle('on-today', onToday);
+  tb.querySelector('.ptb-main').textContent = onToday ? '📅 Viewing today' : '📅 Jump to today';
+  document.getElementById('planner-today-btn-date').textContent =
+    new Date().toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
   const dayTasks = (state.tasks||[]).filter(t=>t.dueDate===ds);
   const allDayTasks = dayTasks.filter(t=>!t.dueTime);
@@ -2467,10 +2505,10 @@ function renderPlannerDay() {
   // reads as part of tonight rather than jumping to another day.
   const nextDs = dstr(plannerDateOffset(1));
   const nextEarly = (state.tasks||[])
-    .filter(t => t.dueDate === nextDs && t.dueTime && toMin(t.dueTime) < OVERNIGHT_END*60)
+    .filter(t => t.dueDate === nextDs && t.dueTime && toMin(t.dueTime) < NIGHT_END*60)
     .sort((a,b) => a.dueTime < b.dueTime ? -1 : 1);
 
-  const hiddenEarly = timedTasks.filter(t => toMin(t.dueTime) < OVERNIGHT_END * 60).length;
+  const hiddenEarly = timedTasks.filter(t => toMin(t.dueTime) < MORNING_END * 60).length;
   const ob = document.getElementById('overnight-btn');
   ob.textContent = showMorning
     ? '▴  Hide morning hours (12am – 5am)'
@@ -2543,7 +2581,7 @@ function renderPlannerDay() {
     const day = v >= 24 ? 1 : 0, h = v % 24;
     const row = document.createElement('div');
     // recessed: this day's small hours at the top, and tomorrow's at the bottom
-    row.className = 'planner-hour-row' + ((day === 1 || h < OVERNIGHT_END) ? ' off-hours' : '');
+    row.className = 'planner-hour-row' + ((day === 1 || h < MORNING_END) ? ' off-hours' : '');
     row.style.height = HOUR_PX + 'px';
     const lbl = document.createElement('div');
     lbl.className = 'planner-hour-label';
@@ -2563,11 +2601,16 @@ function renderPlannerDay() {
   }
 
   const gridStart = vStartHour() * 60;
-  const onGrid = showNight ? [...timedTasks, ...nextEarly] : timedTasks;
+  // Draw only what reaches the visible part of the grid. A task sitting wholly in
+  // the folded-away morning is summarised on the "Show morning hours" button
+  // (and listed in the agenda) instead of being drawn above the top edge.
+  const reachesGrid = t => taskEnd(t) ? toMin(taskEnd(t)) > gridStart : toMin(t.dueTime) >= gridStart;
+  const onGrid = showNight ? [...timedTasks.filter(reachesGrid), ...nextEarly] : timedTasks.filter(reachesGrid);
   layoutLanes(onGrid, t => t.dueDate === nextDs ? 24*60 : 0).forEach(({ t, s, e, lane, lanes }) => {
     const hasEnd = !!taskEnd(t);
-    const topPx = ((s - gridStart) / 60) * HOUR_PX;
-    const hPx = hasEnd ? Math.max(22, ((e - s) / 60) * HOUR_PX) : 28;   // real duration when known
+    const drawS = Math.max(s, gridStart);   // a block that began in the hidden morning starts at the top edge
+    const topPx = ((drawS - gridStart) / 60) * HOUR_PX;
+    const hPx = hasEnd ? Math.max(22, ((e - drawS) / 60) * HOUR_PX) : 28;   // real duration when known
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const block = document.createElement('div');
     block.className = 'planner-block' + (t.done ? ' done-block' : '') + (hasEnd ? ' has-end' : '');
