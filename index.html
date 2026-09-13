@@ -250,7 +250,9 @@
   .cal-cell.today { background: var(--today-bg); }
   .cal-day-num { font-size: 12px; font-weight: 500; color: var(--text3); margin-bottom: 4px; font-family: var(--mono); }
   .cal-cell.today .cal-day-num { color: var(--blue); }
-  .cal-task-chip { font-size: 10px; padding: 2px 5px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid; }
+  /* a faint outline on every side (colour set per chip) plus the strong left accent,
+     and a little more space between stacked chips, so same-category tasks stay distinct */
+  .cal-task-chip { font-size: 10px; padding: 2px 5px; border-radius: 4px; margin-bottom: 3px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid transparent; border-left-width: 3px; }
   .matrix-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-height: calc(100vh - 110px); }
   .matrix-cell { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; overflow-y: auto; }
   .matrix-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
@@ -2075,7 +2077,8 @@ function renderMonthScroll() {
         const chip = document.createElement('div');
         chip.className = 'cal-task-chip';
         chip.dataset.taskId = t.id;
-        chip.style.borderColor = cat?.color||'#888';
+        chip.style.borderColor = (cat?.color||'#888') + '66';   // faint outline on every side…
+        chip.style.borderLeftColor = cat?.color||'#888';         // …strong accent on the left
         chip.style.background = (cat?.color||'#888')+'18';
         chip.style.color = cat?.color||'#444';
         chip.textContent = (t.dueTime ? timeRange(t)+' · ' : '') + t.title;
@@ -2174,7 +2177,7 @@ function renderWeekView() {
       const cat = (state.categories||[]).find(c => c.id===t.catId);
       const chip = document.createElement('div');
       chip.className = 'cal-task-chip';
-      chip.style.cssText = `border-left-color:${cat?.color||'#888'};background:${(cat?.color||'#888')}18;color:${cat?.color||'#444'};margin-bottom:2px;`;
+      chip.style.cssText = `border-color:${cat?.color||'#888'}66;border-left-color:${cat?.color||'#888'};background:${(cat?.color||'#888')}18;color:${cat?.color||'#444'};margin-bottom:3px;`;
       chip.textContent = t.title;
       chip.onclick = () => openEditTask(t.id);
       cell.appendChild(chip);
@@ -2221,9 +2224,12 @@ function renderWeekView() {
       const ev = document.createElement('div');
       ev.className = 'week-event-block';
       const leftPct = (lane / lanes) * 100, widthPct = (1 / lanes) * 100;
-      ev.style.cssText = `top:${topPx}px;height:${hPx}px;left:calc(2px + (100% - 4px) * ${leftPct/100});` +
-        `width:calc((100% - 4px) * ${widthPct/100} - 1px);right:auto;` +
-        `background:${(cat?.color||'#888')}22;border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#444'};`;
+      // 1px inset top and bottom so back-to-back tasks show a gap, plus a faint outline
+      const col = cat?.color || '#888';
+      ev.style.cssText = `top:${topPx + 1}px;height:${Math.max(18, hPx - 2)}px;left:calc(2px + (100% - 4px) * ${leftPct/100});` +
+        `width:calc((100% - 4px) * ${widthPct/100} - 2px);right:auto;` +
+        `background:linear-gradient(${col}22,${col}22),var(--surface);` +
+        `border:1px solid ${col}66;border-left:3px solid ${col};color:${cat?.color||'#444'};`;
       ev.textContent = timeRange(t) + '  ' + t.title;
       ev.title = timeRange(t) + ' · ' + t.title;
       ev.onclick = () => openEditTask(t.id);
@@ -2547,8 +2553,8 @@ function addResizeHandles(block, t, shift) {
         else                newEnd   = Math.min(24*60 - 1, Math.max(origEnd + dm, origStart + MIN_TASK_MIN));
         // live preview only — nothing is saved until the mouse is released
         const drawS = Math.max(newStart + shift, gridStart);
-        block.style.top    = ((drawS - gridStart) * pxPerMin) + 'px';
-        block.style.height = Math.max(16, (newEnd + shift - drawS) * pxPerMin) + 'px';
+        block.style.top    = ((drawS - gridStart) * pxPerMin + 1) + 'px';          // same 1px inset as a render,
+        block.style.height = Math.max(20, (newEnd + shift - drawS) * pxPerMin - 2) + 'px';   // so nothing jumps on release
         textEl.textContent = `${formatTime(hhmmOf(newStart))}–${formatTime(hhmmOf(newEnd))}  ${t.title}`;
       };
       const onUp = () => {
@@ -2705,13 +2711,16 @@ function renderPlannerDay() {
     block.className = 'planner-block' + (t.done ? ' done-block' : '') + (hasEnd ? ' has-end' : '');
     // share the width when blocks overlap so neither is hidden behind the other
     const leftPct = (lane / lanes) * 100, widthPct = (1 / lanes) * 100;
+    // Telling same-category blocks apart: a 1px inset top and bottom (so back-to-back
+    // tasks show a gap instead of fusing into one tall block) and a faint outline on
+    // every side, with the strong accent kept on the left. The tint sits over an
+    // opaque base so a block looks the same on a shaded overnight row.
+    const col = cat?.color || '#888';
     block.style.cssText =
-      `top:${topPx}px;height:${hPx}px;left:calc(60px + (100% - 68px) * ${leftPct/100});` +
-      `width:calc((100% - 68px) * ${widthPct/100} - 2px);right:auto;` +
-      // tint layered over an opaque base, so a block looks the same on a shaded
-      // overnight row as it does on a normal one
-      `background:linear-gradient(${(cat?.color||'#888')}22,${(cat?.color||'#888')}22),var(--surface);` +
-      `border-left:3px solid ${cat?.color||'#888'};color:${cat?.color||'#333'};`;
+      `top:${topPx + 1}px;height:${Math.max(20, hPx - 2)}px;left:calc(60px + (100% - 68px) * ${leftPct/100});` +
+      `width:calc((100% - 68px) * ${widthPct/100} - 3px);right:auto;` +
+      `background:linear-gradient(${col}22,${col}22),var(--surface);` +
+      `border:1px solid ${col}66;border-left:3px solid ${col};color:${cat?.color||'#333'};`;
     block.innerHTML = `
       <span class="planner-block-cb${t.done?' checked':''}" title="${t.done?'Mark not done':'Mark done'}">${t.done?CHECK_SVG:''}</span>
       <span class="planner-block-text">${timeRange(t)}  ${t.title}</span>`;
