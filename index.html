@@ -675,7 +675,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDxFF9Xe--ok5dGB9OoV9MAC0FmXdl-az4",
@@ -857,6 +857,47 @@ function setSyncStatus(s, detail) {
   wrap.style.color = s === 'error' ? 'var(--red)' : '';
 }
 
+// What the server is known to hold, as a key-order-independent string. This is
+// deliberately NOT the undo/redo `lastSnapshot`: that one tracks local edit
+// history, and letting the two share a variable meant a remote update reset the
+// undo baseline and an undo reset the sync baseline.
+let serverSnapshot = null;
+let lastSyncAt = null;
+
+// Firestore returns map keys in its own order, so a plain JSON.stringify of the
+// same board can differ from ours. Sorting keys makes "is this actually new?"
+// answerable instead of accidental.
+function stableJSON(v) {
+  if (Array.isArray(v)) return '[' + v.map(stableJSON).join(',') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableJSON(v[k])).join(',') + '}';
+  }
+  return JSON.stringify(v === undefined ? null : v);
+}
+
+// Applies a board received from the server. Returns true if anything changed.
+function applyRemote(remote, why) {
+  if (!remote) return false;
+  const incoming = stableJSON(remote);
+  if (incoming === serverSnapshot) return false;    // already have it (incl. our own echo)
+  serverSnapshot = incoming;
+  lastSyncAt = Date.now();
+  if (stableJSON(state) === incoming) return false; // identical board, nothing to redraw
+  try {
+    state = remote;
+    state.collapsed = state.collapsed || {};
+    state.grades = state.grades || {};
+    resetHistory();            // history from another device's board isn't ours to undo
+    renderAll();
+  } catch (e) {
+    console.error('[sync] applying remote board failed:', e);
+    return false;
+  }
+  showToast('Updated with changes from another tab.', { autoHideMs: 3500 });
+  console.debug('[sync] applied remote board via', why);
+  return true;
+}
+
 async function loadUserData(uid) {
   const ref = doc(db, 'users', uid);
   const snap = await getDoc(ref);
@@ -867,20 +908,29 @@ async function loadUserData(uid) {
     state = freshState();          // brand-new account: seed the walkthrough board
     await setDoc(ref, { state });
   }
-  // Live sync. Other tabs normally update on their own; the only case we can't
-  // resolve silently is a remote change landing while this tab has edits of its
-  // own still unsaved — replacing state there would throw the user's work away.
+  serverSnapshot = stableJSON(state);
+  lastSyncAt = Date.now();
+
+  // Live sync. An update that arrives while this tab has edits of its own still
+  // waiting to save used to be thrown away here — and Firestore never re-sends
+  // it, which left the tab stale until a reload. Now it is held and applied as
+  // soon as our own save settles.
   unsubscribe = onSnapshot(ref, (snap) => {
     if (!snap.exists()) return;
     const remote = snap.data().state;
     if (!remote) return;
-    const incoming = JSON.stringify(remote);
-    if (incoming === lastSnapshot) return;          // our own write echoing back
-    if (saveTimeout) { showRemoteConflict(); return; }  // unsaved local edits — ask, don't clobber
-    state = remote;
-    lastSnapshot = incoming;
-    renderAll();
-    showToast('Updated with changes from another tab.', { autoHideMs: 3500 });
+    if (stableJSON(remote) === serverSnapshot) return;   // our own write echoing back
+    if (saveTimeout) {                 // our unsaved edits would be lost by redrawing now,
+      pendingRemote = remote;          // so hold this and decide once the save lands
+      showRemoteConflict();
+      return;
+    }
+    applyRemote(remote, 'listener');
+  }, (err) => {
+    // A dropped listener is silent otherwise, and the poller below is then the
+    // only thing keeping the board current.
+    console.error('[sync] live listener stopped:', err);
+    setSyncStatus('error', 'Live updates disconnected — this tab will re-check every 20 seconds.');
   });
 }
 
@@ -895,14 +945,124 @@ function saveToFirebase() {
       // everything typed since the last successful save.
       const payload = JSON.parse(JSON.stringify(state));
       await setDoc(doc(db, 'users', currentUser.uid), { state: payload });
+      serverSnapshot = stableJSON(payload);   // so the echo of this write isn't mistaken for news
+      lastSyncAt = Date.now();
       setSyncStatus('synced');
     } catch(e) {
-      setSyncStatus('error', e && e.message ? e.message : String(e));
+      if (e && e.code === 'resource-exhausted') {
+        noteQuotaExhausted();                // says "daily allowance", not a raw error string
+      } else {
+        setSyncStatus('error', e && e.message ? e.message : String(e));
+      }
       console.error('Save failed:', e);
     }
     saveTimeout = null;
+    // An update arrived mid-save. Our write has now overwritten it, so ask the
+    // server what the truth is rather than trusting the copy we held.
+    if (pendingRemote) { pendingRemote = null; refreshFromServer(); }
   }, 800);
 }
+
+// ── keeping in step without a reload ─────────────────────────────────────────
+// The live listener covers the normal case, but an update that lands while a save
+// is pending is dropped and never re-sent, and a backgrounded tab's connection can
+// be suspended. So the server is also re-read when a save settles, when the tab
+// comes back into view, and on a slow timer — never mid-drag or mid-dialog.
+let pendingRemote = null;
+let refreshInFlight = false;
+
+// Once the project's daily Firestore allowance is gone, every further request
+// fails the same way, so stop asking for a while instead of hammering it.
+const QUOTA_COOLDOWN_MS = 15 * 60 * 1000;
+let quotaHitAt = 0;
+const quotaCoolingDown = () => quotaHitAt && (Date.now() - quotaHitAt < QUOTA_COOLDOWN_MS);
+
+function noteQuotaExhausted() {
+  const first = !quotaHitAt;
+  quotaHitAt = Date.now();
+  setSyncStatus('error', 'This app has used up its daily allowance. Edits stay in this tab only.');
+  if (first) {
+    showToast('This app has hit its daily usage limit, so it can’t sync right now. Your board still works here, and the limit resets later today.',
+      { autoHideMs: 9000 });
+  }
+}
+
+async function refreshFromServer(why = 'timer') {
+  if (!currentUser || saveTimeout) return;      // a save in flight settles first
+  if (midInteraction()) return;                 // don't yank the board out from under a drag
+  if (refreshInFlight || quotaCoolingDown()) return;
+  refreshInFlight = true;
+  try {
+    // getDocFromServer, NOT getDoc: while a listener is attached the SDK treats
+    // its cache as current, so getDoc can keep handing back the same stale board
+    // forever — which is exactly why polling alone didn't help.
+    let snap;
+    try {
+      snap = await getDocFromServer(doc(db, 'users', currentUser.uid));
+    } catch (e) {
+      if (e && e.code === 'unavailable') return;   // offline; the listener catches up later
+      if (e && e.code === 'resource-exhausted') { noteQuotaExhausted(); return; }
+      throw e;
+    }
+    if (!snap.exists()) return;
+    quotaHitAt = 0;                                // a request got through; we're back
+    applyRemote(snap.data().state, why);
+  } catch (e) {
+    console.error('[sync] refresh failed:', e);
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
+// Each poll downloads the whole board, so it runs at a brisk pace only while the
+// tab is actually being used and backs right off when it isn't. The live listener
+// is what keeps things instant; this is just the net under it.
+const POLL_ACTIVE_MS = 10000;
+const POLL_IDLE_MS   = 60000;
+const ACTIVE_WINDOW_MS = 2 * 60 * 1000;
+let lastActivityAt = Date.now();
+let pollTimer = null, pollMode = null;
+
+function scheduleNextPoll() {
+  clearTimeout(pollTimer);
+  const idle = Date.now() - lastActivityAt > ACTIVE_WINDOW_MS;
+  pollMode = idle ? 'idle' : 'active';
+  pollTimer = setTimeout(() => {
+    if (!document.hidden) refreshFromServer(pollMode + ' timer');
+    scheduleNextPoll();
+  }, idle ? POLL_IDLE_MS : POLL_ACTIVE_MS);
+}
+
+function markActive() {
+  lastActivityAt = Date.now();
+  if (pollMode === 'idle') scheduleNextPoll();   // returning to the tab shouldn't wait out a slow tick
+}
+['pointerdown','keydown','wheel','touchstart'].forEach(ev =>
+  document.addEventListener(ev, markActive, { passive: true, capture: true }));
+scheduleNextPoll();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  markActive();
+  refreshFromServer('tab shown');
+});
+window.addEventListener('focus', () => refreshFromServer('window focus'));
+window.addEventListener('online', () => { quotaHitAt = 0; refreshFromServer('back online'); });
+
+// So the next round of "is it syncing?" is one command instead of guesswork:
+// run  __sync()  in the browser console.
+window.__sync = () => ({
+  signedIn: !!currentUser,
+  listenerAttached: !!unsubscribe,
+  secondsSinceServerAgreed: lastSyncAt ? Math.round((Date.now() - lastSyncAt) / 1000) : null,
+  savePending: !!saveTimeout,
+  heldRemoteUpdate: !!pendingRemote,
+  blockedByInteraction: midInteraction(),
+  localMatchesServer: stableJSON(state) === serverSnapshot,
+  pollMode,                                  // 'active' = every 10s, 'idle' = every 60s
+  dailyLimitHit: !!quotaCoolingDown(),
+  forceCheckNow: () => refreshFromServer('manual'),
+});
 
 onAuthStateChanged(auth, async (user) => {
   if (user) {
@@ -923,9 +1083,17 @@ onAuthStateChanged(auth, async (user) => {
       document.getElementById('topbar').style.display = 'none';
       document.getElementById('canvas').style.display = 'none';
       const el = document.getElementById('auth-error');
-      el.textContent = (e && e.code === 'permission-denied')
-        ? 'Signed in, but this app isn’t allowed to load your data. (Owner: check the Firestore security rules for the users collection.)'
-        : 'Signed in, but your data couldn’t be loaded' + (e && e.code ? ' (' + e.code + ')' : '') + '. Check your connection and reload.';
+      const code = e && e.code;
+      el.textContent =
+        code === 'permission-denied'
+          ? 'Signed in, but this app isn’t allowed to load your data. (Owner: check the Firestore security rules for the users collection.)'
+        : code === 'resource-exhausted'
+          // not the user's fault and not fixable by reloading — the project's daily
+          // free allowance is spent, and it resets on its own
+          ? 'Signed in, but this app has used up its daily allowance, so your board can’t load right now. Nothing has been lost — it resets automatically, so try again later today.'
+        : code === 'unavailable'
+          ? 'Signed in, but your board couldn’t be reached. Check your internet connection and reload.'
+        : 'Signed in, but your data couldn’t be loaded' + (code ? ' (' + code + ')' : '') + '. Try reloading in a moment.';
       el.classList.add('show');
       console.error(e);
       return;
