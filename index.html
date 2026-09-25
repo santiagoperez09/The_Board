@@ -838,13 +838,6 @@ function showToast(msg, opts = {}) {
   if (opts.autoHideMs) toastTimer = setTimeout(hideToast, opts.autoHideMs);
 }
 
-// Shown only when we genuinely can't merge: someone changed the board elsewhere
-// while this tab still has edits of its own waiting to save.
-function showRemoteConflict() {
-  showToast('This board was just updated in another tab. Reload to see those changes — anything unsaved here will be replaced.',
-    { actionLabel: 'Reload', onAction: () => location.reload() });
-}
-
 function setSyncStatus(s, detail) {
   const dot = document.getElementById('sync-dot');
   const label = document.getElementById('sync-label');
@@ -917,12 +910,14 @@ async function loadUserData(uid) {
   // soon as our own save settles.
   unsubscribe = onSnapshot(ref, (snap) => {
     if (!snap.exists()) return;
+    // Firestore replays our own write to us the moment it's issued, before the
+    // server has acknowledged it. That echo is this tab's own edit, not news.
+    if (snap.metadata.hasPendingWrites) return;
     const remote = snap.data().state;
     if (!remote) return;
-    if (stableJSON(remote) === serverSnapshot) return;   // our own write echoing back
-    if (saveTimeout) {                 // our unsaved edits would be lost by redrawing now,
-      pendingRemote = remote;          // so hold this and decide once the save lands
-      showRemoteConflict();
+    if (stableJSON(remote) === serverSnapshot) return;   // already accounted for
+    if (saveTimeout) {                 // redrawing now would drop our unsaved edits, so
+      pendingRemote = remote;          // hold it and reconcile once our save lands
       return;
     }
     applyRemote(remote, 'listener');
@@ -939,16 +934,22 @@ function saveToFirebase() {
   setSyncStatus('syncing');
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
+    const previousServerSnapshot = serverSnapshot;
     try {
       // The JSON round-trip drops any keys whose value is undefined. Firestore
       // rejects the whole write if even one exists, which would silently lose
       // everything typed since the last successful save.
       const payload = JSON.parse(JSON.stringify(state));
+      // Claim this as the server's content *before* awaiting the write. The echo
+      // of our own save can reach the listener before setDoc resolves, and a
+      // serverSnapshot still holding the old board at that instant made this
+      // tab's own edit look like another tab's — the spurious "reload" prompt.
+      serverSnapshot = stableJSON(payload);
       await setDoc(doc(db, 'users', currentUser.uid), { state: payload });
-      serverSnapshot = stableJSON(payload);   // so the echo of this write isn't mistaken for news
       lastSyncAt = Date.now();
       setSyncStatus('synced');
     } catch(e) {
+      serverSnapshot = previousServerSnapshot;   // the write never landed
       if (e && e.code === 'resource-exhausted') {
         noteQuotaExhausted();                // says "daily allowance", not a raw error string
       } else {
@@ -3058,7 +3059,6 @@ window.toggleCollapse = toggleCollapse;
 window.toggleSubCollapse = toggleSubCollapse;
 window.showToast = showToast;
 window.hideToast = hideToast;
-window.showRemoteConflict = showRemoteConflict;
 window.toggleMorning = toggleMorning;
 window.toggleNight = toggleNight;
 window.openGroupMenu = openGroupMenu;
