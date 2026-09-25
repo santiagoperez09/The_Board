@@ -2009,8 +2009,19 @@ document.getElementById('cat-color-hex').addEventListener('input', function() {
 
 // ── MODAL UTILS ──────────────────────────────────────────────────────────────
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+// Clicking the backdrop closes the dialog — but a click's target is the nearest
+// common ancestor of press and release, so selecting text in a field and letting
+// go outside the panel also reports the overlay and used to discard the edit.
+// Both ends of the gesture have to land on the backdrop for it to count.
 ['task-modal','cat-modal','grade-modal'].forEach(id => {
-  document.getElementById(id).addEventListener('click', e => { if (e.target===e.currentTarget) closeModal(id); });
+  const overlay = document.getElementById(id);
+  let pressedBackdrop = false, releasedBackdrop = false;
+  overlay.addEventListener('pointerdown', e => { pressedBackdrop = (e.target === overlay); });
+  overlay.addEventListener('pointerup',   e => { releasedBackdrop = (e.target === overlay); });
+  overlay.addEventListener('click', () => {
+    if (pressedBackdrop && releasedBackdrop) closeModal(id);
+    pressedBackdrop = releasedBackdrop = false;
+  });
 });
 
 // ── CALENDAR ─────────────────────────────────────────────────────────────────
