@@ -2036,11 +2036,25 @@ const HOURS = Array.from({length:16},(_,i)=>i+7); // 7am–10pm
 function toMin(t) { if (!t) return null; const [h,m] = t.split(':').map(Number); return h*60 + m; }
 
 // an end time only counts if it actually lands after the start
+// An end earlier on the clock than the start means the block runs past midnight,
+// the way calendars normally read 11pm–1am. Only an end equal to the start is
+// meaningless, so that's the one case thrown away.
 function validEnd(start, end) {
   if (!start || !end) return '';
-  return toMin(end) > toMin(start) ? end : '';
+  return toMin(end) !== toMin(start) ? end : '';
 }
 function taskEnd(t) { return validEnd(t.dueTime, t.endTime); }
+
+// The end as minutes from the START day's midnight, so 11pm–1am measures 1500
+// rather than 60. Everything that draws a task or measures its length has to use
+// this: plain toMin(endTime) turns an overnight block inside out.
+function endMinOf(t) {
+  const e = taskEnd(t);
+  if (!e) return null;
+  const s = toMin(t.dueTime), em = toMin(e);
+  return em > s ? em : em + 24*60;
+}
+const crossesMidnight = t => { const e = taskEnd(t); return !!e && toMin(e) < toMin(t.dueTime); };
 
 // ── overdue ──────────────────────────────────────────────────────────────────
 // Past its due moment and still not done. A task due today with no time isn't
@@ -2053,7 +2067,8 @@ function isOverdue(t) {
   if (t.dueDate < today) return true;
   if (t.dueDate > today) return false;
   if (!t.dueTime) return false;
-  return toMin(taskEnd(t) || t.dueTime) < now.getHours()*60 + now.getMinutes();
+  // an overnight block isn't late on its start day: endMinOf puts it past 1440
+  return (endMinOf(t) ?? toMin(t.dueTime)) < now.getHours()*60 + now.getMinutes();
 }
 
 // "Overdue" on its own once it's a while back; "2d late" while it's still recent.
@@ -2074,7 +2089,8 @@ function overdueBadge(t) {
 function timeRange(t) {
   if (!t.dueTime) return '';
   const e = taskEnd(t);
-  return formatTime(t.dueTime) + (e ? '–' + formatTime(e) : '');
+  // "+1" so an overnight block reads as ending tomorrow, not earlier the same day
+  return formatTime(t.dueTime) + (e ? '–' + formatTime(e) + (crossesMidnight(t) ? ' +1' : '') : '');
 }
 
 function updateEndHint() {
@@ -2082,9 +2098,11 @@ function updateEndHint() {
   const end   = document.getElementById('f-end').value;
   const hint  = document.getElementById('f-end-hint');
   if (end && !start)          { hint.textContent = 'Set a start time too — an end time on its own is ignored.'; hint.className = 'form-hint warn'; }
-  else if (start && end && toMin(end) <= toMin(start)) { hint.textContent = 'End time must be after the start time, so it will be ignored.'; hint.className = 'form-hint warn'; }
-  else if (start && end)      { const d = toMin(end)-toMin(start);
-                                hint.textContent = `Blocks out ${Math.floor(d/60)?Math.floor(d/60)+'h ':''}${d%60?d%60+'m':''}`.trim() + ' on the planner.';
+  else if (start && end && toMin(end) === toMin(start)) { hint.textContent = 'End time matches the start time, so it will be ignored.'; hint.className = 'form-hint warn'; }
+  else if (start && end)      { const overnight = toMin(end) < toMin(start);
+                                const d = toMin(end) - toMin(start) + (overnight ? 24*60 : 0);
+                                hint.textContent = `Blocks out ${Math.floor(d/60)?Math.floor(d/60)+'h ':''}${d%60?d%60+'m':''}`.trim()
+                                  + (overnight ? ' on the planner, ending the next morning.' : ' on the planner.');
                                 hint.className = 'form-hint'; }
   else                        { hint.textContent = 'Add an end time to block out real time on the planner.'; hint.className = 'form-hint'; }
 }
@@ -2098,7 +2116,7 @@ function layoutLanes(tasks, shiftOf) {
   const items = tasks.map(t => {
     const off = shiftOf ? shiftOf(t) : 0;
     const s = toMin(t.dueTime) + off;
-    const e = (taskEnd(t) ? toMin(taskEnd(t)) : toMin(t.dueTime) + 30) + off;
+    const e = (endMinOf(t) ?? toMin(t.dueTime) + 30) + off;   // may run past midnight
     return { t, s, e };
   }).sort((a,b) => a.s - b.s || a.e - b.e);
 
@@ -2665,7 +2683,7 @@ function scheduleTaskAt(taskId, v) {
   if (!t) return;
   // keep the block's length when it's being moved rather than newly scheduled
   const start = t.dueTime ? toMin(t.dueTime) : null;
-  const end   = taskEnd(t) ? toMin(taskEnd(t)) : null;
+  const end   = endMinOf(t);                       // past 1440 when it already crossed midnight
   const dur   = (start !== null && end !== null) ? end - start : null;
 
   const mins = minsOfV(v);
@@ -2674,8 +2692,9 @@ function scheduleTaskAt(taskId, v) {
   t.dueDate = newDate;
   t.dueTime = hhmmOf(mins);
   // a moved block keeps its length; one placed without a length gets 30 minutes.
-  // Capped at 11:59pm rather than wrapping past midnight into an invalid end.
-  t.endTime = hhmmOf(Math.min(mins + (dur !== null ? dur : 30), 24*60 - 1));
+  // hhmmOf wraps the clock, so a block landing near midnight runs on into the
+  // small hours instead of being truncated at 11:59pm.
+  t.endTime = hhmmOf(mins + (dur !== null ? dur : 30));
   save();
   renderAll();
 }
@@ -2721,8 +2740,11 @@ function addResizeHandles(block, t, shift) {
       document.body.classList.add('planner-resizing');      // freeze everything else
       const pxPerMin  = HOUR_PX / 60;
       const origStart = toMin(t.dueTime);
-      const origEnd   = taskEnd(t) ? toMin(taskEnd(t)) : origStart + 30;   // a point task reads as 30m
+      const origEnd   = endMinOf(t) ?? origStart + 30;      // a point task reads as 30m
       const gridStart = vStartHour() * 60;
+      // the bottom of the visible grid, expressed in this block's own minutes, so
+      // the edge can be pulled down through midnight into the late-night rows
+      const maxEnd    = dayEndV() * 60 - shift;
       const startY    = e.clientY;
       const textEl    = block.querySelector('.planner-block-text');
       let newStart = origStart, newEnd = origEnd;
@@ -2730,7 +2752,7 @@ function addResizeHandles(block, t, shift) {
       const onMove = ev => {
         const dm = Math.round(((ev.clientY - startY) / pxPerMin) / RESIZE_STEP) * RESIZE_STEP;
         if (edge === 'top') newStart = Math.max(0, Math.min(origStart + dm, origEnd - MIN_TASK_MIN));
-        else                newEnd   = Math.min(24*60 - 1, Math.max(origEnd + dm, origStart + MIN_TASK_MIN));
+        else                newEnd   = Math.min(maxEnd, Math.max(origEnd + dm, origStart + MIN_TASK_MIN));
         // live preview only — nothing is saved until the mouse is released
         const drawS = Math.max(newStart + shift, gridStart);
         block.style.top    = ((drawS - gridStart) * pxPerMin + 1) + 'px';          // same 1px inset as a render,
@@ -2879,13 +2901,14 @@ function renderPlannerDay() {
   // Draw only what reaches the visible part of the grid. A task sitting wholly in
   // the folded-away morning is summarised on the "Show morning hours" button
   // (and listed in the agenda) instead of being drawn above the top edge.
-  const reachesGrid = t => taskEnd(t) ? toMin(taskEnd(t)) > gridStart : toMin(t.dueTime) >= gridStart;
+  const reachesGrid = t => endMinOf(t) !== null ? endMinOf(t) > gridStart : toMin(t.dueTime) >= gridStart;
   const onGrid = showNight ? [...timedTasks.filter(reachesGrid), ...nextEarly] : timedTasks.filter(reachesGrid);
   layoutLanes(onGrid, t => t.dueDate === nextDs ? 24*60 : 0).forEach(({ t, s, e, lane, lanes }) => {
     const hasEnd = !!taskEnd(t);
     const drawS = Math.max(s, gridStart);   // a block that began in the hidden morning starts at the top edge
+    const drawE = Math.min(e, dayEndV() * 60);   // and one running past the last row stops at the bottom edge
     const topPx = ((drawS - gridStart) / 60) * HOUR_PX;
-    const hPx = hasEnd ? Math.max(22, ((e - drawS) / 60) * HOUR_PX) : 28;   // real duration when known
+    const hPx = hasEnd ? Math.max(22, ((drawE - drawS) / 60) * HOUR_PX) : 28;   // real duration when known
     const cat = (state.categories||[]).find(c=>c.id===t.catId);
     const block = document.createElement('div');
     block.className = 'planner-block' + (t.done ? ' done-block' : '') + (hasEnd ? ' has-end' : '');
@@ -2953,7 +2976,7 @@ function openPlannerAdd(prefillTime, dayOffset) {
   if (!catId) { ensurePlannerCategory(); catId = 'planner'; }
   openAddTask(catId, dstr(plannerDateOffset(dayOffset || 0)), prefillTime || '');
   if (prefillTime) {                   // an hour picked on the planner starts as a 30-minute block
-    document.getElementById('f-end').value = hhmmOf(Math.min(toMin(prefillTime) + 30, 24*60 - 1));
+    document.getElementById('f-end').value = hhmmOf(toMin(prefillTime) + 30);   // wraps past midnight
     updateEndHint();
   }
 }
@@ -2971,10 +2994,14 @@ function exportICS() {
     if (t.dueTime) {
       // a real timed event, so it lands at the right hour in other calendar apps
       const hhmm = s => s.replace(':','') + '00';
-      const endMin = taskEnd(t) ? toMin(taskEnd(t)) : toMin(t.dueTime) + 60;   // default 1h
+      const endMin = endMinOf(t) ?? toMin(t.dueTime) + 60;   // default 1h
+      // an overnight block ends on the following date, or the event would finish
+      // before it starts and other calendar apps would reject it
+      let endD = d;
+      if (endMin >= 24*60) { const x = new Date(t.dueDate + 'T00:00:00'); x.setDate(x.getDate() + 1); endD = dstr(x).replace(/-/g,''); }
       const eh = String(Math.floor(endMin/60) % 24).padStart(2,'0'), em = String(endMin%60).padStart(2,'0');
       startLine = `DTSTART:${d}T${hhmm(t.dueTime)}`;
-      endLine   = `DTEND:${d}T${eh}${em}00`;
+      endLine   = `DTEND:${endD}T${eh}${em}00`;
     } else {
       startLine = `DTSTART;VALUE=DATE:${d}`;
       endLine   = `DTEND;VALUE=DATE:${d}`;
