@@ -280,6 +280,12 @@
   .modal-title { font-size: 16px; font-weight: 500; margin-bottom: 18px; }
   .form-row { margin-bottom: 14px; }
   .form-label { font-size: 11px; font-weight: 500; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px; display: block; }
+  /* Native date and time inputs give no way to empty them, so each gets its own
+     Clear — shown only while that field actually holds something. */
+  .field-clear { float: right; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--text3); background: none; border: 0; padding: 0;
+    cursor: pointer; line-height: inherit; }
+  .field-clear:hover { color: var(--red); text-decoration: underline; }
   .form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: var(--font); background: var(--surface); color: var(--text); outline: none; transition: border-color 0.12s; }
   .form-input:focus { border-color: var(--text3); }
   select.form-input { cursor: pointer; }
@@ -564,11 +570,17 @@
       <div><label class="form-label">Category</label>
         <div class="cat-select-wrap"><span class="cat-swatch" id="f-cat-swatch"></span><select class="form-input" id="f-class"></select></div>
       </div>
-      <div><label class="form-label">Due Date</label><input class="form-input" type="date" id="f-date"></div>
+      <div><label class="form-label">Due Date<button type="button" class="field-clear" id="f-date-clear" hidden
+            title="Remove the due date, and the times with it" onclick="clearTaskField('date')">Clear</button></label>
+        <input class="form-input" type="date" id="f-date"></div>
     </div>
     <div class="form-row-2" style="grid-template-columns:1fr 1fr;">
-      <div><label class="form-label">Start</label><input class="form-input" type="time" id="f-time"></div>
-      <div><label class="form-label">End</label><input class="form-input" type="time" id="f-end"></div>
+      <div><label class="form-label">Start<button type="button" class="field-clear" id="f-time-clear" hidden
+            title="Remove the start time, and the end with it" onclick="clearTaskField('start')">Clear</button></label>
+        <input class="form-input" type="time" id="f-time"></div>
+      <div><label class="form-label">End<button type="button" class="field-clear" id="f-end-clear" hidden
+            title="Remove the end time" onclick="clearTaskField('end')">Clear</button></label>
+        <input class="form-input" type="time" id="f-end"></div>
     </div>
     <div class="form-hint" id="f-end-hint">Add an end time to block out real time on the planner.</div>
     <div class="form-row" id="f-sub-row"><label class="form-label">Subcategory</label><select class="form-input" id="f-sub"></select></div>
@@ -1730,6 +1742,30 @@ function populateSubSelect(catId, selectedSub) {
 
 ['f-time','f-end'].forEach(id => document.getElementById(id).addEventListener('input', updateEndHint));
 
+// Each Clear also drops what can't stand without it: a time needs a date to sit on,
+// and an end time on its own is ignored, so clearing cascades downwards.
+function clearTaskField(which) {
+  const date = document.getElementById('f-date');
+  const start = document.getElementById('f-time');
+  const end = document.getElementById('f-end');
+  if (which === 'date')  { date.value = ''; start.value = ''; end.value = ''; }
+  if (which === 'start') { start.value = ''; end.value = ''; }
+  if (which === 'end')   { end.value = ''; }
+  updateEndHint();
+  syncClearButtons();
+}
+
+// A Clear on an already-empty field would be a button that does nothing, so each
+// one only appears while its field holds a value.
+function syncClearButtons() {
+  [['f-date','f-date-clear'], ['f-time','f-time-clear'], ['f-end','f-end-clear']].forEach(([field, btn]) => {
+    const b = document.getElementById(btn);
+    if (b) b.hidden = !document.getElementById(field).value;
+  });
+}
+['f-date','f-time','f-end'].forEach(id =>
+  document.getElementById(id).addEventListener('input', syncClearButtons));
+
 document.getElementById('f-class').addEventListener('change', function() {
   const types = getTypesForCat(this.value);
   selectedType = types[0];
@@ -1746,6 +1782,7 @@ function openAddTask(catId, prefillDate, prefillTime) {
   document.getElementById('f-time').value = prefillTime || '';
   document.getElementById('f-end').value = '';
   updateEndHint();
+  syncClearButtons();
   document.getElementById('f-notes').value = '';
   document.getElementById('f-quadrant').value = '';
   selectedPriority = '';
@@ -1773,6 +1810,7 @@ function openEditTask(id) {
   document.getElementById('f-time').value = t.dueTime||'';
   document.getElementById('f-end').value = t.endTime||'';
   updateEndHint();
+  syncClearButtons();
   document.getElementById('f-notes').value = t.notes||'';
   document.getElementById('f-quadrant').value = t.quadrant||'';
   selectedPriority = t.priority||'';
@@ -3114,6 +3152,7 @@ window.editingGradeCats = editingGradeCats;
 window.plannerGoToday = plannerGoToday;
 window.plannerPickDate = plannerPickDate;
 window.openPlannerAdd = openPlannerAdd;
+window.clearTaskField = clearTaskField;
 </script>
 </body>
 </html>
