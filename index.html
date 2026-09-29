@@ -290,6 +290,16 @@
     letter-spacing: 0.05em; text-transform: uppercase; color: var(--text3); background: none; border: 0;
     padding: 0; cursor: pointer; line-height: inherit; }
   .field-quick:hover { color: var(--blue); text-decoration: underline; }
+  .planner-snap-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; }
+  .planner-snap-label { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text3); white-space: nowrap; }
+  .planner-snap-btns { display: flex; flex: 1; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .planner-snap-btns button { flex: 1; padding: 4px 0; font: inherit; font-size: 11px; font-weight: 500;
+    color: var(--text2); background: var(--surface); border: 0; border-left: 1px solid var(--border);
+    cursor: pointer; transition: background 0.12s, color 0.12s; }
+  .planner-snap-btns button:first-child { border-left: 0; }
+  .planner-snap-btns button:hover { background: var(--surface2); }
+  .planner-snap-btns button.sel { background: var(--text); color: var(--accent-fg); font-weight: 600; }
   .form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: var(--font); background: var(--surface); color: var(--text); outline: none; transition: border-color 0.12s; }
   .form-input:focus { border-color: var(--text3); }
   select.form-input { cursor: pointer; }
@@ -528,6 +538,15 @@
         </div>
       </div>
       <button class="topbar-btn primary planner-add-btn" onclick="openPlannerAdd()">+ Add to this day</button>
+      <div class="planner-snap-row">
+        <span class="planner-snap-label">Snap to</span>
+        <div class="planner-snap-btns" id="planner-snap-btns">
+          <button type="button" data-snap="5"  onclick="setPlannerSnap(5)"  title="Drag and resize in 5-minute steps">5m</button>
+          <button type="button" data-snap="10" onclick="setPlannerSnap(10)" title="Drag and resize in 10-minute steps">10m</button>
+          <button type="button" data-snap="15" onclick="setPlannerSnap(15)" title="Drag and resize in 15-minute steps">15m</button>
+          <button type="button" data-snap="30" onclick="setPlannerSnap(30)" title="Drag and resize in 30-minute steps">30m</button>
+        </div>
+      </div>
       <div id="planner-allday" class="planner-allday"></div>
     </div>
     <div class="planner-main">
@@ -576,7 +595,8 @@
       </div>
       <div><label class="form-label">Due Date<button type="button" class="field-clear" id="f-date-clear" hidden
             title="Remove the due date, and the times with it" onclick="clearTaskField('date')">Clear</button><button type="button" class="field-quick"
-            title="Set the due date to today" onclick="setTaskDateToday()">Today</button></label>
+            title="Set the due date to today" onclick="setTaskDate(0)">Today</button><button type="button" class="field-quick"
+            title="Set the due date to tomorrow" onclick="setTaskDate(1)">Tomorrow</button></label>
         <input class="form-input" type="date" id="f-date"></div>
     </div>
     <div class="form-row-2" style="grid-template-columns:1fr 1fr;">
@@ -1762,8 +1782,10 @@ function clearTaskField(which) {
 
 // dstr, not toISOString: the board stores local calendar dates, and an ISO string
 // is UTC, so late in the evening it would hand back tomorrow.
-function setTaskDateToday() {
-  document.getElementById('f-date').value = dstr(new Date());
+function setTaskDate(dayOffset) {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);   // setDate rolls months and years over for us
+  document.getElementById('f-date').value = dstr(d);
   syncClearButtons();
 }
 
@@ -2688,6 +2710,27 @@ const HOUR_PX = 64;            // height of one hour on the planner grid — the
 let showMorning = (() => { try { return localStorage.getItem('board-morning') === '1'; } catch(e) { return false; } })();
 let showNight   = (() => { try { return localStorage.getItem('board-night')   === '1'; } catch(e) { return false; } })();
 
+// How finely drags and resizes snap on the planner. A per-device view preference,
+// so it lives in localStorage rather than the synced board.
+const SNAP_CHOICES = [5, 10, 15, 30];
+let plannerSnap = (() => {
+  try { const v = Number(localStorage.getItem('board-snap')); return SNAP_CHOICES.includes(v) ? v : 15; }
+  catch(e) { return 15; }
+})();
+
+function setPlannerSnap(v) {
+  if (!SNAP_CHOICES.includes(v)) return;
+  plannerSnap = v;
+  try { localStorage.setItem('board-snap', String(v)); } catch(e) {}
+  syncSnapButtons();
+  renderPlannerDay();
+}
+
+function syncSnapButtons() {
+  document.querySelectorAll('#planner-snap-btns button').forEach(b =>
+    b.classList.toggle('sel', Number(b.dataset.snap) === plannerSnap));
+}
+
 function toggleMorning() {
   showMorning = !showMorning;
   try { localStorage.setItem('board-morning', showMorning ? '1' : '0'); } catch(e) {}
@@ -2712,7 +2755,6 @@ function plannerDateOffset(n) {
 }
 
 // ── drag-to-schedule ─────────────────────────────────────────────────────────
-const SLOT_MIN = 15;                 // drops snap to quarter-hour marks
 let plannerDragTaskId = null;
 
 function hhmmOf(mins) {
@@ -2723,8 +2765,8 @@ function hhmmOf(mins) {
 function vFromY(timeline, clientY) {
   const y = clientY - timeline.getBoundingClientRect().top;
   const raw = vStartHour()*60 + (y / HOUR_PX) * 60;
-  const lo = vStartHour()*60, hi = dayEndV()*60 - SLOT_MIN;
-  return Math.max(lo, Math.min(hi, Math.round(raw / SLOT_MIN) * SLOT_MIN));
+  const lo = vStartHour()*60, hi = dayEndV()*60 - plannerSnap;
+  return Math.max(lo, Math.min(hi, Math.round(raw / plannerSnap) * plannerSnap));
 }
 
 function scheduleTaskAt(taskId, v) {
@@ -2775,8 +2817,7 @@ function makePlannerDraggable(el, taskId) {
 // Top edge moves the start, bottom edge moves the end, in 15-minute steps, never
 // shorter than 15 minutes. Uses plain mouse events rather than the HTML5 drag
 // that moves blocks, so that drag is paused while an edge is held.
-const RESIZE_STEP = 15;
-const MIN_TASK_MIN = 15;
+// step and minimum length both follow the chosen snap
 
 function addResizeHandles(block, t, shift) {
   ['top', 'bottom'].forEach(edge => {
@@ -2800,9 +2841,9 @@ function addResizeHandles(block, t, shift) {
       let newStart = origStart, newEnd = origEnd;
 
       const onMove = ev => {
-        const dm = Math.round(((ev.clientY - startY) / pxPerMin) / RESIZE_STEP) * RESIZE_STEP;
-        if (edge === 'top') newStart = Math.max(0, Math.min(origStart + dm, origEnd - MIN_TASK_MIN));
-        else                newEnd   = Math.min(maxEnd, Math.max(origEnd + dm, origStart + MIN_TASK_MIN));
+        const dm = Math.round(((ev.clientY - startY) / pxPerMin) / plannerSnap) * plannerSnap;
+        if (edge === 'top') newStart = Math.max(0, Math.min(origStart + dm, origEnd - plannerSnap));
+        else                newEnd   = Math.min(maxEnd, Math.max(origEnd + dm, origStart + plannerSnap));
         // live preview only — nothing is saved until the mouse is released
         const drawS = Math.max(newStart + shift, gridStart);
         block.style.top    = ((drawS - gridStart) * pxPerMin + 1) + 'px';          // same 1px inset as a render,
@@ -2833,6 +2874,7 @@ function addResizeHandles(block, t, shift) {
 
 function renderPlannerDay() {
   const state = getState();
+  syncSnapButtons();                 // keep the highlighted step right across reloads and re-renders
   const ds = dstr(plannerSelectedDate);
   document.getElementById('planner-day-title').textContent = plannerSelectedDate.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
   const onToday = dstr(plannerSelectedDate) === dstr(new Date());
@@ -3162,10 +3204,11 @@ window.onTrackGradesToggle = onTrackGradesToggle;
 window.editingSubs = editingSubs;
 window.editingGradeCats = editingGradeCats;
 window.plannerGoToday = plannerGoToday;
+window.setPlannerSnap = setPlannerSnap;
 window.plannerPickDate = plannerPickDate;
 window.openPlannerAdd = openPlannerAdd;
 window.clearTaskField = clearTaskField;
-window.setTaskDateToday = setTaskDateToday;
+window.setTaskDate = setTaskDate;
 </script>
 </body>
 </html>
