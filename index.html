@@ -286,6 +286,10 @@
     text-transform: uppercase; color: var(--text3); background: none; border: 0; padding: 0;
     cursor: pointer; line-height: inherit; }
   .field-clear:hover { color: var(--red); text-decoration: underline; }
+  .field-quick { float: right; margin-right: 10px; font: inherit; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase; color: var(--text3); background: none; border: 0;
+    padding: 0; cursor: pointer; line-height: inherit; }
+  .field-quick:hover { color: var(--blue); text-decoration: underline; }
   .form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: var(--font); background: var(--surface); color: var(--text); outline: none; transition: border-color 0.12s; }
   .form-input:focus { border-color: var(--text3); }
   select.form-input { cursor: pointer; }
@@ -571,7 +575,8 @@
         <div class="cat-select-wrap"><span class="cat-swatch" id="f-cat-swatch"></span><select class="form-input" id="f-class"></select></div>
       </div>
       <div><label class="form-label">Due Date<button type="button" class="field-clear" id="f-date-clear" hidden
-            title="Remove the due date, and the times with it" onclick="clearTaskField('date')">Clear</button></label>
+            title="Remove the due date, and the times with it" onclick="clearTaskField('date')">Clear</button><button type="button" class="field-quick"
+            title="Set the due date to today" onclick="setTaskDateToday()">Today</button></label>
         <input class="form-input" type="date" id="f-date"></div>
     </div>
     <div class="form-row-2" style="grid-template-columns:1fr 1fr;">
@@ -1752,6 +1757,13 @@ function clearTaskField(which) {
   if (which === 'start') { start.value = ''; end.value = ''; }
   if (which === 'end')   { end.value = ''; }
   updateEndHint();
+  syncClearButtons();
+}
+
+// dstr, not toISOString: the board stores local calendar dates, and an ISO string
+// is UTC, so late in the evening it would hand back tomorrow.
+function setTaskDateToday() {
+  document.getElementById('f-date').value = dstr(new Date());
   syncClearButtons();
 }
 
@@ -3153,6 +3165,7 @@ window.plannerGoToday = plannerGoToday;
 window.plannerPickDate = plannerPickDate;
 window.openPlannerAdd = openPlannerAdd;
 window.clearTaskField = clearTaskField;
+window.setTaskDateToday = setTaskDateToday;
 </script>
 </body>
 </html>
