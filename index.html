@@ -601,7 +601,7 @@
     </div>
     <div class="form-row-2" style="grid-template-columns:1fr 1fr;">
       <div><label class="form-label">Start<button type="button" class="field-clear" id="f-time-clear" hidden
-            title="Remove the start time, and the end with it" onclick="clearTaskField('start')">Clear</button></label>
+            title="Remove the start time" onclick="clearTaskField('start')">Clear</button></label>
         <input class="form-input" type="time" id="f-time"></div>
       <div><label class="form-label">End<button type="button" class="field-clear" id="f-end-clear" hidden
             title="Remove the end time" onclick="clearTaskField('end')">Clear</button></label>
@@ -1561,7 +1561,7 @@ function makeTaskCard(t, cat) {
   const div = document.createElement('div');
   div.className = `task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}`;
   div.dataset.taskId = t.id;
-  const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) + (t.dueTime ? ' · ' + timeRange(t) : '') : '';
+  const dateStr = t.dueDate ? new Date(t.dueDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) + ((t.dueTime || t.endTime) ? ' · ' + timeRange(t) : '') : '';
   div.innerHTML = `
     <div class="task-top">
       <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">
@@ -1767,14 +1767,14 @@ function populateSubSelect(catId, selectedSub) {
 
 ['f-time','f-end'].forEach(id => document.getElementById(id).addEventListener('input', updateEndHint));
 
-// Each Clear also drops what can't stand without it: a time needs a date to sit on,
-// and an end time on its own is ignored, so clearing cascades downwards.
+// Clearing the date drops the times too, since a time needs a date to sit on. Start
+// and End are independent: an end with no start is a "due by" time.
 function clearTaskField(which) {
   const date = document.getElementById('f-date');
   const start = document.getElementById('f-time');
   const end = document.getElementById('f-end');
   if (which === 'date')  { date.value = ''; start.value = ''; end.value = ''; }
-  if (which === 'start') { start.value = ''; end.value = ''; }
+  if (which === 'start') { start.value = ''; }
   if (which === 'end')   { end.value = ''; }
   updateEndHint();
   syncClearButtons();
@@ -2086,14 +2086,40 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 // common ancestor of press and release, so selecting text in a field and letting
 // go outside the panel also reports the overlay and used to discard the edit.
 // Both ends of the gesture have to land on the backdrop for it to count.
+// Even then, a dialog the user has typed into never closes on a backdrop click:
+// the backdrop is the easiest thing in the app to hit by accident (dismissing a
+// native date or time picker is one way), and the cost is the whole edit. Cancel,
+// Save and Escape remain the deliberate ways out.
+function dialogFingerprint(overlay) {
+  const parts = [];
+  overlay.querySelectorAll('input, select, textarea').forEach(el =>
+    parts.push(el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value));
+  overlay.querySelectorAll('.sel, .selected, .active').forEach(el =>
+    parts.push(el.id || el.dataset.p || el.textContent.trim()));
+  return JSON.stringify(parts);
+}
+
 ['task-modal','cat-modal','grade-modal'].forEach(id => {
   const overlay = document.getElementById(id);
   let pressedBackdrop = false, releasedBackdrop = false;
+  let openedWith = null;
+  // every opener fills the form in before adding .open, so this is a true baseline
+  new MutationObserver(() => {
+    if (overlay.classList.contains('open')) openedWith = dialogFingerprint(overlay);
+  }).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+
   overlay.addEventListener('pointerdown', e => { pressedBackdrop = (e.target === overlay); });
   overlay.addEventListener('pointerup',   e => { releasedBackdrop = (e.target === overlay); });
   overlay.addEventListener('click', () => {
-    if (pressedBackdrop && releasedBackdrop) closeModal(id);
+    const deliberate = pressedBackdrop && releasedBackdrop;
     pressedBackdrop = releasedBackdrop = false;
+    if (!deliberate) return;
+    if (openedWith !== null && dialogFingerprint(overlay) !== openedWith) {
+      showToast('Your changes are still here. Use Save to keep them, or Cancel to discard them.',
+        { autoHideMs: 4000 });
+      return;
+    }
+    closeModal(id);
   });
 });
 
@@ -2111,8 +2137,10 @@ function toMin(t) { if (!t) return null; const [h,m] = t.split(':').map(Number);
 // An end earlier on the clock than the start means the block runs past midnight,
 // the way calendars normally read 11pm–1am. Only an end equal to the start is
 // meaningless, so that's the one case thrown away.
+// With no start it is a "due by" time rather than a block, so it stands alone.
 function validEnd(start, end) {
-  if (!start || !end) return '';
+  if (!end) return '';
+  if (!start) return end;
   return toMin(end) !== toMin(start) ? end : '';
 }
 function taskEnd(t) { return validEnd(t.dueTime, t.endTime); }
@@ -2122,11 +2150,11 @@ function taskEnd(t) { return validEnd(t.dueTime, t.endTime); }
 // this: plain toMin(endTime) turns an overnight block inside out.
 function endMinOf(t) {
   const e = taskEnd(t);
-  if (!e) return null;
+  if (!e || !t.dueTime) return null;     // a bare "due by" has no block to measure
   const s = toMin(t.dueTime), em = toMin(e);
   return em > s ? em : em + 24*60;
 }
-const crossesMidnight = t => { const e = taskEnd(t); return !!e && toMin(e) < toMin(t.dueTime); };
+const crossesMidnight = t => { const e = taskEnd(t); return !!e && !!t.dueTime && toMin(e) < toMin(t.dueTime); };
 
 // ── overdue ──────────────────────────────────────────────────────────────────
 // Past its due moment and still not done. A task due today with no time isn't
@@ -2138,9 +2166,11 @@ function isOverdue(t) {
   const today = dstr(now);
   if (t.dueDate < today) return true;
   if (t.dueDate > today) return false;
-  if (!t.dueTime) return false;
-  // an overnight block isn't late on its start day: endMinOf puts it past 1440
-  return (endMinOf(t) ?? toMin(t.dueTime)) < now.getHours()*60 + now.getMinutes();
+  // an overnight block isn't late on its start day: endMinOf puts it past 1440.
+  // With no start time, the end time is the deadline.
+  const due = t.dueTime ? (endMinOf(t) ?? toMin(t.dueTime)) : (t.endTime ? toMin(t.endTime) : null);
+  if (due === null) return false;
+  return due < now.getHours()*60 + now.getMinutes();
 }
 
 // "Overdue" on its own once it's a while back; "2d late" while it's still recent.
@@ -2159,7 +2189,7 @@ function overdueBadge(t) {
 }
 
 function timeRange(t) {
-  if (!t.dueTime) return '';
+  if (!t.dueTime) return t.endTime ? 'by ' + formatTime(t.endTime) : '';
   const e = taskEnd(t);
   // "+1" so an overnight block reads as ending tomorrow, not earlier the same day
   return formatTime(t.dueTime) + (e ? '–' + formatTime(e) + (crossesMidnight(t) ? ' +1' : '') : '');
@@ -2169,7 +2199,7 @@ function updateEndHint() {
   const start = document.getElementById('f-time').value;
   const end   = document.getElementById('f-end').value;
   const hint  = document.getElementById('f-end-hint');
-  if (end && !start)          { hint.textContent = 'Set a start time too — an end time on its own is ignored.'; hint.className = 'form-hint warn'; }
+  if (end && !start)          { hint.textContent = 'With no start time, this is a "due by" time — it won’t block out time on the planner.'; hint.className = 'form-hint'; }
   else if (start && end && toMin(end) === toMin(start)) { hint.textContent = 'End time matches the start time, so it will be ignored.'; hint.className = 'form-hint warn'; }
   else if (start && end)      { const overnight = toMin(end) < toMin(start);
                                 const d = toMin(end) - toMin(start) + (overnight ? 24*60 : 0);
@@ -2351,7 +2381,7 @@ function renderMonthScroll() {
         chip.style.borderLeftColor = cat?.color||'#888';         // …strong accent on the left
         chip.style.background = (cat?.color||'#888')+'18';
         chip.style.color = cat?.color||'#444';
-        chip.textContent = (t.dueTime ? timeRange(t)+' · ' : '') + t.title;
+        chip.textContent = ((t.dueTime || t.endTime) ? timeRange(t)+' · ' : '') + t.title;
         if (isOverdue(t)) { chip.classList.add('late'); chip.title = 'Overdue — ' + t.title; }
         else chip.title = t.title;
         chip.onclick = () => openEditTask(t.id);
@@ -2448,7 +2478,7 @@ function renderWeekView() {
       const chip = document.createElement('div');
       chip.className = 'cal-task-chip';
       chip.style.cssText = `border-color:${cat?.color||'#888'}66;border-left-color:${cat?.color||'#888'};background:${(cat?.color||'#888')}18;color:${cat?.color||'#444'};margin-bottom:3px;`;
-      chip.textContent = t.title;
+      chip.textContent = (t.endTime ? timeRange(t) + ' · ' : '') + t.title;
       chip.onclick = () => openEditTask(t.id);
       cell.appendChild(chip);
     });
@@ -2918,7 +2948,7 @@ function renderPlannerDay() {
     return `<div class="task-card${t.priority?' priority-'+t.priority:''}${t.done?' done-card':''}" data-task-id="${t.id}" title="Drag onto the schedule to set a time" onclick="openEditTask('${t.id}')">
       <div class="task-top">
         <div class="task-cb${t.done?' checked':''}" onclick="toggleDone('${t.id}',event)">${t.done?CHECK_SVG:''}</div>
-        ${showTime?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${timeRange(t)}</span>`:''}
+        ${(showTime || (!t.dueTime && t.endTime))?`<span class="planner-time-chip" style="background:${color}18;color:${color}">${timeRange(t)}</span>`:''}
         <span class="task-title">${t.title}</span>
       </div>
       <div class="task-meta">${overdueBadge(t)}${t.type?`<span class="task-type-badge" style="background:${color}18;color:${color}">${t.type}</span>`:''}<span class="task-date" style="color:${color}">${cat?.name||''}</span></div>
